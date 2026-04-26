@@ -55,7 +55,7 @@ type BoardSquare = {
 
 type GameMode = "ai" | "friend";
 type AiLevel = "easy" | "medium" | "pro";
-type ThemeName = "classic" | "midnight" | "royal";
+type ThemeName = "classic" | "midnight" | "royal" | "carbon";
 type Language = "en" | "ru";
 type View = "home" | "play" | "puzzles" | "learn" | "coach" | "history" | "community" | "leaderboard" | "pro";
 
@@ -144,6 +144,7 @@ const copy = {
     classic: "Classic",
     midnight: "Midnight",
     royal: "Royal",
+    carbon: "Carbon",
     clubhouse: "Clubhouse",
     communityHub: "Community hub",
     hostRoom: "Host room",
@@ -173,6 +174,7 @@ const copy = {
     classic: "Классика",
     midnight: "Ночь",
     royal: "Королевская",
+    carbon: "Карбон",
     clubhouse: "Клуб",
     communityHub: "Центр сообщества",
     hostRoom: "Создать комнату",
@@ -192,12 +194,13 @@ const themeOptions: Array<{ id: ThemeName; labelKey: string; description: string
   { id: "classic", labelKey: "classic", description: "Clean bright tournament hall" },
   { id: "midnight", labelKey: "midnight", description: "Focused dark analysis room" },
   { id: "royal", labelKey: "royal", description: "Premium deep green and gold" },
+  { id: "carbon", labelKey: "carbon", description: "Modern black studio with amber accents" },
 ];
 
 function normalizeTheme(value: unknown): ThemeName {
   if (value === "light") return "classic";
   if (value === "dark") return "midnight";
-  if (value === "classic" || value === "midnight" || value === "royal") return value;
+  if (value === "classic" || value === "midnight" || value === "royal" || value === "carbon") return value;
   return "midnight";
 }
 
@@ -421,6 +424,59 @@ const communityPosts = [
     description: "Find players near your level, open a room, and analyze the game together after it ends.",
     schedule: "Live now · 400-1800 Elo",
     prize: "Friendly match history and coach review",
+  },
+];
+
+const legends = [
+  {
+    name: "Magnus Carlsen",
+    role: "World Champion",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Magnus_Carlsen_in_2023.jpg",
+    message: "Enjoy the fight. The best players stay curious even in quiet positions.",
+    action: "Train calculation",
+  },
+  {
+    name: "Judit Polgar",
+    role: "Attacking legend",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Judit_Polgar.jpg",
+    message: "Play actively. Initiative can be worth more than comfort.",
+    action: "Open tactics",
+  },
+  {
+    name: "Garry Kasparov",
+    role: "World Champion",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Garry_Kasparov_IMG_0130.JPG",
+    message: "Preparation creates confidence. Review, improve, repeat.",
+    action: "Analyze game",
+  },
+];
+
+const communityWisdom = [
+  { player: "Emanuel Lasker", text: "When you see a good move, look for a better one." },
+  { player: "Bobby Fischer", text: "Tactics flow from a superior position." },
+  { player: "Anatoly Karpov", text: "Small advantages become victories through patience." },
+];
+
+const chessReportLinks = [
+  {
+    title: "FIDE News",
+    source: "Official chess federation reports",
+    url: "https://www.fide.com/news",
+  },
+  {
+    title: "ChessBase News",
+    source: "Tournament reports and analysis",
+    url: "https://en.chessbase.com/",
+  },
+  {
+    title: "Chess.com News",
+    source: "Events, interviews, and game reports",
+    url: "https://www.chess.com/news",
+  },
+  {
+    title: "Lichess Blog",
+    source: "Community studies and chess culture",
+    url: "https://lichess.org/blog",
   },
 ];
 
@@ -1075,6 +1131,98 @@ export default function App() {
       .map((entry, index) => ({ ...entry, rank: index + 1 }));
   }, [profile, savedGames]);
 
+  const nextLesson = getNextLesson(lessonProgress);
+  const solvedPuzzleCount = getPuzzleSolvedCount(puzzleSolved, puzzleSet);
+  const homeCopy =
+    language === "ru"
+      ? {
+          mission: "План на сегодня",
+          missionTitle: "Заполни день сильной шахматной работой",
+          missionText: "Короткий маршрут из партии, тактики, урока и анализа. Нажми любой блок и сразу продолжай тренировку.",
+          momentum: "Твой прогресс",
+          lesson: "Следующий урок",
+          puzzle: "Тактика",
+          coach: "AI-разбор",
+          city: "Клуб города",
+          lessonText: `Продолжить: ${nextLesson.title}.`,
+          puzzleText: `${solvedPuzzleCount}/${puzzleSet.length} решено. Новая задача появится после полного прохождения.`,
+          coachText: reviewScore ? `Текущая оценка партии: ${reviewScore}%.` : "Сыграй несколько ходов, затем попроси Stockfish проверить позицию.",
+          cityText: `${profile.city}: арены, комнаты и местный рейтинг.`,
+          lessonButton: "Начать урок",
+          puzzleButton: "Решать",
+          coachButton: stockfishBusy ? "Анализ..." : "Разобрать",
+          cityButton: "Открыть клуб",
+          elo: "Elo",
+          course: "Курс",
+          puzzles: "Пазлы",
+          archive: "Архив",
+          savedSummary: makeSavedGameSummary(savedGames),
+        }
+      : {
+          mission: "Today's command center",
+          missionTitle: "Fill this session with serious chess work",
+          missionText: "A focused route through one game, one tactic, one lesson, and one review. Every card jumps into the real feature.",
+          momentum: "Your momentum",
+          lesson: "Next lesson",
+          puzzle: "Tactics",
+          coach: "AI review",
+          city: "City club",
+          lessonText: `Continue: ${nextLesson.title}.`,
+          puzzleText: `${solvedPuzzleCount}/${puzzleSet.length} solved. A fresh puzzle appears after you clear the set.`,
+          coachText: reviewScore ? `Current game review: ${reviewScore}%.` : "Play a few moves, then ask Stockfish to check the position.",
+          cityText: `${profile.city}: arenas, rooms, and local leaderboard.`,
+          lessonButton: "Start lesson",
+          puzzleButton: "Train puzzle",
+          coachButton: stockfishBusy ? "Analyzing..." : "Analyze",
+          cityButton: "Open club",
+          elo: "Elo",
+          course: "Course",
+          puzzles: "Puzzles",
+          archive: "Archive",
+          savedSummary: makeSavedGameSummary(savedGames),
+        };
+
+  const homeMissions = [
+    {
+      icon: BookOpen,
+      title: homeCopy.lesson,
+      text: homeCopy.lessonText,
+      metric: `${courseCompletion}%`,
+      button: homeCopy.lessonButton,
+      action: () => {
+        setView("learn");
+        continueLesson(nextLesson.title);
+      },
+    },
+    {
+      icon: Dumbbell,
+      title: homeCopy.puzzle,
+      text: homeCopy.puzzleText,
+      metric: `${solvedPuzzleCount}/${puzzleSet.length}`,
+      button: homeCopy.puzzleButton,
+      action: () => {
+        setView("puzzles");
+        selectPuzzle(selectedPuzzleIndex);
+      },
+    },
+    {
+      icon: Brain,
+      title: homeCopy.coach,
+      text: homeCopy.coachText,
+      metric: reviewScore ? `${reviewScore}%` : "SF",
+      button: homeCopy.coachButton,
+      action: analyzeNow,
+    },
+    {
+      icon: Users,
+      title: homeCopy.city,
+      text: homeCopy.cityText,
+      metric: `#${leaderboard.find((entry) => entry.name === profile.name)?.rank ?? "-"}`,
+      button: homeCopy.cityButton,
+      action: () => setView("community"),
+    },
+  ];
+
   useEffect(() => {
     localStorage.setItem("cm-profile", JSON.stringify(profile));
   }, [profile]);
@@ -1552,7 +1700,7 @@ export default function App() {
   }
 
   function cycleTheme() {
-    const order: ThemeName[] = ["classic", "midnight", "royal"];
+    const order: ThemeName[] = ["classic", "midnight", "royal", "carbon"];
     const next = order[(order.indexOf(theme) + 1) % order.length];
     setTheme(next);
     setToast(`${copy[language][next]} theme selected.`);
@@ -1563,10 +1711,28 @@ export default function App() {
     setToast(copy[language].settingsSaved);
   }
 
-  function updateLanguage(next: Language) {
-    setLanguage(next);
-    setToast(copy[next].settingsSaved);
+function updateLanguage(next: Language) {
+  setLanguage(next);
+  setToast(copy[next].settingsSaved);
+}
+
+function followLegend(name: string) {
+  if (name.includes("Magnus")) {
+    setView("learn");
+    setToast("Magnus mindset selected: train calculation and practical decision-making.");
+  } else if (name.includes("Judit")) {
+    setView("puzzles");
+    setToast("Judit mindset selected: sharpen tactics and attacking intuition.");
+  } else {
+    setView("coach");
+    setToast("Kasparov mindset selected: analyze preparation and improve the next game.");
   }
+}
+
+function openExternal(url: string, label: string) {
+  window.open(url, "_blank", "noopener,noreferrer");
+  setToast(`${label} opened in a new tab.`);
+}
 
   function openCommunityDetail(detail: CommunityDetail) {
     setCommunityDetail(detail);
@@ -1606,7 +1772,7 @@ export default function App() {
             <Menu size={18} />
           </button>
           <button className="iconButton" onClick={cycleTheme} aria-label="Toggle theme">
-            {theme === "classic" ? <Sun size={18} /> : theme === "midnight" ? <Moon size={18} /> : <Crown size={18} />}
+            {theme === "classic" ? <Sun size={18} /> : theme === "midnight" ? <Moon size={18} /> : theme === "royal" ? <Crown size={18} /> : <Sparkles size={18} />}
           </button>
           {profile.signedIn ? (
             <button className="authButton" onClick={signOut}>
@@ -1744,6 +1910,62 @@ export default function App() {
                 <span>18 players online</span>
                 <button className="primaryButton" onClick={() => setView("community")}>Join lobby</button>
               </div>
+
+              <section className="trainingPlan">
+                <div className="trainingHeader">
+                  <div>
+                    <span className="eyebrow">{homeCopy.mission}</span>
+                    <h3>{homeCopy.missionTitle}</h3>
+                    <p>{homeCopy.missionText}</p>
+                  </div>
+                  <div className="planBadge">
+                    <Flame size={18} />
+                    {profile.pro ? "Pro plan active" : "Starter path"}
+                  </div>
+                </div>
+
+                <div className="missionGrid">
+                  {homeMissions.map((mission) => {
+                    const Icon = mission.icon;
+                    return (
+                      <article className="missionCard" key={mission.title}>
+                        <div className="missionIcon">
+                          <Icon size={22} />
+                        </div>
+                        <div>
+                          <span>{mission.metric}</span>
+                          <h4>{mission.title}</h4>
+                          <p>{mission.text}</p>
+                        </div>
+                        <button className="ghostButton" onClick={mission.action}>
+                          <Zap size={15} />
+                          {mission.button}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <div className="momentumBoard">
+                  <div>
+                    <span>{homeCopy.elo}</span>
+                    <strong>{formatElo(profile.rating)}</strong>
+                  </div>
+                  <div>
+                    <span>{homeCopy.course}</span>
+                    <strong>{courseCompletion}%</strong>
+                  </div>
+                  <div>
+                    <span>{homeCopy.puzzles}</span>
+                    <strong>{solvedPuzzleCount}/{puzzleSet.length}</strong>
+                  </div>
+                  <div>
+                    <span>{homeCopy.archive}</span>
+                    <strong>{savedGames.length}</strong>
+                  </div>
+                  <p>{homeCopy.savedSummary}</p>
+                </div>
+              </section>
             </section>
           )}
 
@@ -2222,6 +2444,35 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  <div className="communityWisdom">
+                    <div className="sectionHeader compactHeader">
+                      <div>
+                        <span className="eyebrow">Chess wisdom</span>
+                        <h3>Words before a hard game</h3>
+                      </div>
+                    </div>
+                    {communityWisdom.map((item) => (
+                      <button key={item.player} onClick={() => setToast(`${item.player}: ${item.text}`)}>
+                        <strong>"{item.text}"</strong>
+                        <span>{item.player}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="reportLinks">
+                    <div className="sectionHeader compactHeader">
+                      <div>
+                        <span className="eyebrow">Chess reports</span>
+                        <h3>Follow real tournament news</h3>
+                      </div>
+                    </div>
+                    {chessReportLinks.map((link) => (
+                      <button key={link.title} onClick={() => openExternal(link.url, link.title)}>
+                        <span>{link.title}</span>
+                        <small>{link.source}</small>
+                        <ExternalLink size={15} />
+                      </button>
+                    ))}
+                  </div>
                 </>
               )}
               <div className="newsPanel">
@@ -2329,6 +2580,28 @@ export default function App() {
               "Chess is everything: art, science, and sport."
               <span>Anatoly Karpov</span>
             </blockquote>
+          </div>
+
+          <div className="roadmapCard legendsCard">
+            <div className="panelTitle">
+              <Trophy size={18} />
+              <h3>Legends corner</h3>
+            </div>
+            <div className="legendList">
+              {legends.map((legend) => (
+                <article key={legend.name} className="legendCard">
+                  <img src={legend.image} alt={legend.name} loading="lazy" />
+                  <div>
+                    <span>{legend.role}</span>
+                    <strong>{legend.name}</strong>
+                    <p>{legend.message}</p>
+                    <button className="ghostButton" onClick={() => followLegend(legend.name)}>
+                      {legend.action}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
 
           <div className="roadmapCard levelCard">
