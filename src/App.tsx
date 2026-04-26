@@ -7,14 +7,19 @@ import {
   CheckCircle2,
   Copy,
   Crown,
+  Database,
   Dumbbell,
+  ExternalLink,
   Flame,
   History,
+  KeyRound,
+  Languages,
   LogIn,
   LogOut,
   Menu,
   Moon,
   Newspaper,
+  Palette,
   Play,
   RefreshCcw,
   Save,
@@ -50,6 +55,8 @@ type BoardSquare = {
 
 type GameMode = "ai" | "friend";
 type AiLevel = "easy" | "medium" | "pro";
+type ThemeName = "classic" | "midnight" | "royal";
+type Language = "en" | "ru";
 type View = "home" | "play" | "puzzles" | "learn" | "coach" | "history" | "community" | "leaderboard" | "pro";
 
 type Profile = {
@@ -107,8 +114,92 @@ type RoomMessage = {
   fen: string;
 };
 
+type CommunityDetail = {
+  title: string;
+  tag: string;
+  meta: string;
+  description: string;
+  schedule: string;
+  prize: string;
+  action: string;
+};
+
 const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const clientId = crypto.randomUUID();
+
+const copy = {
+  en: {
+    play: "Play",
+    puzzles: "Puzzles",
+    learn: "Learn",
+    coach: "Coach",
+    history: "History",
+    community: "Community",
+    cities: "Cities",
+    pro: "Pro",
+    home: "Home",
+    preferences: "Preferences",
+    theme: "Theme",
+    language: "Language",
+    classic: "Classic",
+    midnight: "Midnight",
+    royal: "Royal",
+    clubhouse: "Clubhouse",
+    communityHub: "Community hub",
+    hostRoom: "Host room",
+    backCommunity: "Back to community",
+    joinNow: "Join now",
+    openRoom: "Open room",
+    participants: "Participants",
+    schedule: "Schedule",
+    prize: "Reward",
+    masterDigest: "Master Digest",
+    currentRoom: "Current room",
+    settingsSaved: "Preferences saved.",
+  },
+  ru: {
+    play: "Играть",
+    puzzles: "Задачи",
+    learn: "Обучение",
+    coach: "Тренер",
+    history: "История",
+    community: "Сообщество",
+    cities: "Города",
+    pro: "Pro",
+    home: "Главная",
+    preferences: "Настройки",
+    theme: "Тема",
+    language: "Язык",
+    classic: "Классика",
+    midnight: "Ночь",
+    royal: "Королевская",
+    clubhouse: "Клуб",
+    communityHub: "Центр сообщества",
+    hostRoom: "Создать комнату",
+    backCommunity: "Назад",
+    joinNow: "Присоединиться",
+    openRoom: "Открыть комнату",
+    participants: "Участники",
+    schedule: "Расписание",
+    prize: "Награда",
+    masterDigest: "Дайджест Master",
+    currentRoom: "Текущая комната",
+    settingsSaved: "Настройки сохранены.",
+  },
+} satisfies Record<Language, Record<string, string>>;
+
+const themeOptions: Array<{ id: ThemeName; labelKey: string; description: string }> = [
+  { id: "classic", labelKey: "classic", description: "Clean bright tournament hall" },
+  { id: "midnight", labelKey: "midnight", description: "Focused dark analysis room" },
+  { id: "royal", labelKey: "royal", description: "Premium deep green and gold" },
+];
+
+function normalizeTheme(value: unknown): ThemeName {
+  if (value === "light") return "classic";
+  if (value === "dark") return "midnight";
+  if (value === "classic" || value === "midnight" || value === "royal") return value;
+  return "midnight";
+}
 
 const pieceIcons: Record<string, string> = {
   wk: "♔",
@@ -304,9 +395,33 @@ const generatedPuzzleBank: Puzzle[] = [
 ];
 
 const communityPosts = [
-  { title: "Almaty Friday Arena", meta: "42 players registered", tag: "Tournament", action: "Join arena" },
-  { title: "How I crossed 1600 in 30 days", meta: "Dana shared a study plan", tag: "Guide", action: "Read guide" },
-  { title: "Looking for rapid sparring partners", meta: "5 active rooms", tag: "Clubs", action: "Find players" },
+  {
+    title: "Almaty Friday Arena",
+    meta: "42 players registered",
+    tag: "Tournament",
+    action: "Join arena",
+    description: "A weekly rapid arena for local players. Play five rounds, collect points, and appear on the city board.",
+    schedule: "Friday 20:00 · 10+0 rapid",
+    prize: "+35 city points and Pro skin raffle",
+  },
+  {
+    title: "How I crossed 1600 in 30 days",
+    meta: "Dana shared a study plan",
+    tag: "Guide",
+    action: "Read guide",
+    description: "A practical improvement plan with daily tactics, opening review, and one annotated rapid game per day.",
+    schedule: "10 minute read · includes study checklist",
+    prize: "Save guide to your academy path",
+  },
+  {
+    title: "Looking for rapid sparring partners",
+    meta: "5 active rooms",
+    tag: "Clubs",
+    action: "Find players",
+    description: "Find players near your level, open a room, and analyze the game together after it ends.",
+    schedule: "Live now · 400-1800 Elo",
+    prize: "Friendly match history and coach review",
+  },
 ];
 
 const coachTimeline = [
@@ -520,6 +635,18 @@ function getLessonBoost(title: string) {
 
 function makeRoomCode(label: string) {
   return `${label.replace(/[^A-Z]/gi, "").slice(0, 4).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+}
+
+function makeRoomDetail(label: string, profile: Profile): CommunityDetail {
+  return {
+    title: label,
+    tag: "Live room",
+    meta: `${profile.city} club room`,
+    description: "A live training room where you can invite a friend, play a game, and review it with the coach after the result.",
+    schedule: "Open now · shareable link",
+    prize: "Saved game, coach report, and city activity credit",
+    action: "Open room",
+  };
 }
 
 function getRoomList(profile: Profile) {
@@ -892,7 +1019,8 @@ export default function App() {
   const [selected, setSelected] = useState<Square | null>(null);
   const [legalTargets, setLegalTargets] = useState<Square[]>([]);
   const [history, setHistory] = useState<Move[]>([]);
-  const [theme, setTheme] = useState<"light" | "dark">(() => loadJson("cm-theme", "dark"));
+  const [theme, setTheme] = useState<ThemeName>(() => normalizeTheme(loadJson("cm-theme", "midnight")));
+  const [language, setLanguage] = useState<Language>(() => loadJson("cm-language", "en"));
   const [view, setView] = useState<View>("home");
   const [mode, setMode] = useState<GameMode>("ai");
   const [aiLevel, setAiLevel] = useState<AiLevel>(() => loadJson("cm-ai-level", "medium"));
@@ -919,6 +1047,7 @@ export default function App() {
   const [puzzleSolved, setPuzzleSolved] = useState<Record<string, boolean>>(() => loadJson("cm-puzzle-solved", {}));
   const [puzzleMessage, setPuzzleMessage] = useState(puzzles[0].goal);
   const [joinedRoom, setJoinedRoom] = useState("");
+  const [communityDetail, setCommunityDetail] = useState<CommunityDetail | null>(null);
   const [stockfishBusy, setStockfishBusy] = useState(false);
   const [stockfishAnalysis, setStockfishAnalysis] = useState<StockfishAnalysis | null>(null);
   const [cloudRoomLive, setCloudRoomLive] = useState(false);
@@ -937,6 +1066,7 @@ export default function App() {
   const dynamicCoachTimeline = useMemo(() => getCoachTimeline(history, game), [history, game]);
   const roomList = useMemo(() => getRoomList(profile), [profile]);
   const courseCompletion = useMemo(() => getCourseCompletion(lessonProgress), [lessonProgress]);
+  const t = (key: keyof typeof copy.en) => copy[language][key] ?? copy.en[key];
 
   const leaderboard = useMemo(() => {
     const userStreak = savedGames.filter((savedGame) => savedGame.result === "1-0").length;
@@ -960,6 +1090,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("cm-theme", JSON.stringify(theme));
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("cm-language", JSON.stringify(language));
+  }, [language]);
 
   useEffect(() => {
     localStorage.setItem("cm-ai-level", JSON.stringify(aiLevel));
@@ -1417,16 +1551,43 @@ export default function App() {
     setToast(makeCityUpdate(city));
   }
 
+  function cycleTheme() {
+    const order: ThemeName[] = ["classic", "midnight", "royal"];
+    const next = order[(order.indexOf(theme) + 1) % order.length];
+    setTheme(next);
+    setToast(`${copy[language][next]} theme selected.`);
+  }
+
+  function updateTheme(next: ThemeName) {
+    setTheme(next);
+    setToast(copy[language].settingsSaved);
+  }
+
+  function updateLanguage(next: Language) {
+    setLanguage(next);
+    setToast(copy[next].settingsSaved);
+  }
+
+  function openCommunityDetail(detail: CommunityDetail) {
+    setCommunityDetail(detail);
+    setToast(`${detail.title} opened.`);
+  }
+
+  function joinCommunityDetail(detail: CommunityDetail) {
+    joinCommunityRoom(detail.title);
+    setCommunityDetail(detail);
+  }
+
   const nav = [
-    { id: "home", label: "Home", icon: Play },
-    { id: "play", label: "Play", icon: Swords },
-    { id: "puzzles", label: "Puzzles", icon: Dumbbell },
-    { id: "learn", label: "Learn", icon: BookOpen },
-    { id: "coach", label: "Coach", icon: Brain },
-    { id: "history", label: "History", icon: History },
-    { id: "community", label: "Community", icon: Users },
-    { id: "leaderboard", label: "Cities", icon: Trophy },
-    { id: "pro", label: "Pro", icon: Crown },
+    { id: "home", labelKey: "home", icon: Play },
+    { id: "play", labelKey: "play", icon: Swords },
+    { id: "puzzles", labelKey: "puzzles", icon: Dumbbell },
+    { id: "learn", labelKey: "learn", icon: BookOpen },
+    { id: "coach", labelKey: "coach", icon: Brain },
+    { id: "history", labelKey: "history", icon: History },
+    { id: "community", labelKey: "community", icon: Users },
+    { id: "leaderboard", labelKey: "cities", icon: Trophy },
+    { id: "pro", labelKey: "pro", icon: Crown },
   ] as const;
 
   return (
@@ -1444,8 +1605,8 @@ export default function App() {
           <button className="iconButton mobileMenu" onClick={() => setMobileNavOpen((current) => !current)} aria-label="Open navigation">
             <Menu size={18} />
           </button>
-          <button className="iconButton" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          <button className="iconButton" onClick={cycleTheme} aria-label="Toggle theme">
+            {theme === "classic" ? <Sun size={18} /> : theme === "midnight" ? <Moon size={18} /> : <Crown size={18} />}
           </button>
           {profile.signedIn ? (
             <button className="authButton" onClick={signOut}>
@@ -1493,7 +1654,7 @@ export default function App() {
                   }}
                 >
                   <Icon size={18} />
-                  {item.label}
+                  {t(item.labelKey)}
                 </button>
               );
             })}
@@ -1822,6 +1983,26 @@ export default function App() {
                 </div>
                 <button className="primaryButton" onClick={() => continueLesson(getNextLesson(lessonProgress).title)}>Start lesson</button>
               </div>
+              <div className="youtubeGrid featuredLinks">
+                <div className="sectionHeader compactHeader">
+                  <div>
+                    <span className="eyebrow">Education library</span>
+                    <h3>Learn from trusted chess teachers</h3>
+                    <p className="sectionLead">Use these study links together with your Chess Master lessons and Stockfish review.</p>
+                  </div>
+                </div>
+                {youtubeLessons.map((lesson) => (
+                  <a key={lesson.title} href={lesson.url} target="_blank" rel="noreferrer" className="youtubeCard">
+                    <span>{lesson.level}</span>
+                    <strong>{lesson.title}</strong>
+                    <p>{lesson.text}</p>
+                    <small>
+                      Open resource
+                      <ExternalLink size={14} />
+                    </small>
+                  </a>
+                ))}
+              </div>
               <div className="lessonList">
                 {lessons.map((lesson) => (
                   <article className="lessonCard" key={lesson.title}>
@@ -1841,21 +2022,6 @@ export default function App() {
                       {chooseLessonAction(getLessonProgress(lessonProgress, lesson.title, lesson.progress))}
                     </button>
                   </article>
-                ))}
-              </div>
-              <div className="youtubeGrid">
-                <div className="sectionHeader compactHeader">
-                  <div>
-                    <span className="eyebrow">YouTube study links</span>
-                    <h3>Trusted chess learning resources</h3>
-                  </div>
-                </div>
-                {youtubeLessons.map((lesson) => (
-                  <a key={lesson.title} href={lesson.url} target="_blank" rel="noreferrer" className="youtubeCard">
-                    <span>{lesson.level}</span>
-                    <strong>{lesson.title}</strong>
-                    <p>{lesson.text}</p>
-                  </a>
                 ))}
               </div>
             </section>
@@ -1993,38 +2159,75 @@ export default function App() {
             <section className="dashboardView">
               <div className="sectionHeader">
                 <div>
-                  <span className="eyebrow">Clubhouse</span>
-                  <h2>Community hub</h2>
-                  <p className="sectionLead">{getCommunityHeadline(profile)} {joinedRoom ? `Current room: ${joinedRoom}.` : ""}</p>
+                  <span className="eyebrow">{t("clubhouse")}</span>
+                  <h2>{t("communityHub")}</h2>
+                  <p className="sectionLead">
+                    {getCommunityHeadline(profile)} {joinedRoom ? `${t("currentRoom")}: ${joinedRoom}.` : ""}
+                  </p>
                 </div>
                 <button className="primaryButton" onClick={createRoom}>
                   <Users size={16} />
-                  Host room
+                  {t("hostRoom")}
                 </button>
               </div>
-              <div className="communityGrid">
-                {communityPosts.map((post) => (
-                  <article className="communityCard" key={post.title}>
-                    <span>{post.tag}</span>
-                    <h3>{post.title}</h3>
-                    <p>{post.meta}</p>
-                    <button className="ghostButton" onClick={() => joinCommunityRoom(post.title)}>{post.action}</button>
-                  </article>
-                ))}
-              </div>
-              <div className="liveRooms">
-                {roomList.map((room) => (
-                  <button key={room.label} onClick={() => joinCommunityRoom(room.label)}>
-                    <span>{room.label}</span>
-                    <strong>{room.online} online</strong>
-                    <small>{room.level}</small>
+              {communityDetail ? (
+                <div className="communityDetail">
+                  <button className="textButton backButton" onClick={() => setCommunityDetail(null)}>
+                    {t("backCommunity")}
                   </button>
-                ))}
-              </div>
+                  <span className="eyebrow">{communityDetail.tag}</span>
+                  <h3>{communityDetail.title}</h3>
+                  <p>{communityDetail.description}</p>
+                  <div className="detailStats">
+                    <div>
+                      <span>{t("participants")}</span>
+                      <strong>{communityDetail.meta}</strong>
+                    </div>
+                    <div>
+                      <span>{t("schedule")}</span>
+                      <strong>{communityDetail.schedule}</strong>
+                    </div>
+                    <div>
+                      <span>{t("prize")}</span>
+                      <strong>{communityDetail.prize}</strong>
+                    </div>
+                  </div>
+                  <div className="detailActions">
+                    <button className="primaryButton" onClick={() => joinCommunityDetail(communityDetail)}>
+                      {t("joinNow")}
+                    </button>
+                    <button className="ghostButton" onClick={() => setView("play")}>
+                      {t("openRoom")}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="communityGrid">
+                    {communityPosts.map((post) => (
+                      <article className="communityCard" key={post.title}>
+                        <span>{post.tag}</span>
+                        <h3>{post.title}</h3>
+                        <p>{post.meta}</p>
+                        <button className="ghostButton" onClick={() => openCommunityDetail(post)}>{post.action}</button>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="liveRooms">
+                    {roomList.map((room) => (
+                      <button key={room.label} onClick={() => openCommunityDetail(makeRoomDetail(room.label, profile))}>
+                        <span>{room.label}</span>
+                        <strong>{room.online} online</strong>
+                        <small>{room.level}</small>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <div className="newsPanel">
                 <div className="panelTitle">
                   <Newspaper size={19} />
-                  <h3>Master Digest</h3>
+                  <h3>{t("masterDigest")}</h3>
                 </div>
                 <p>Weekly recap cards, tournament announcements, and coach tips update from your active rooms and saved training progress.</p>
               </div>
@@ -2065,15 +2268,40 @@ export default function App() {
         <aside className="rightRail">
           <div className="profileEditor">
             <div className="panelTitle">
-              <LogIn size={18} />
-              <h3>{profile.signedIn ? "Account" : "Auth"}</h3>
+              <KeyRound size={18} />
+              <h3>{profile.signedIn ? "Secure account" : "Create your account"}</h3>
             </div>
-            {!profile.signedIn && (
-              <div className="authStack">
-                <button className="primaryButton" onClick={() => openAuth("signup")}>Create account</button>
-                <button className="ghostButton" onClick={() => openAuth("login")}>Log in</button>
+            <div className="authStatus">
+              <span className={profile.signedIn ? "statusDot online" : "statusDot"} />
+              <div>
+                <strong>{profile.signedIn ? profile.name : "Guest session"}</strong>
+                <small>{profile.signedIn ? profile.email : "Sign in to save progress across devices"}</small>
               </div>
-            )}
+            </div>
+            <div className="authFeatureList">
+              <div>
+                <Database size={16} />
+                <span>{cloud.enabled ? "Firebase Auth + Firestore active" : "Firebase Auth + Firestore ready"}</span>
+              </div>
+              <div>
+                <Shield size={16} />
+                <span>{cloud.enabled ? "Cloud progress sync enabled" : "Local fallback protects demo flow"}</span>
+              </div>
+              <div>
+                <Users size={16} />
+                <span>{cloudRoomLive ? "Public friend room live" : "Friend rooms become public after deploy"}</span>
+              </div>
+            </div>
+            <div className="authStack">
+              {profile.signedIn ? (
+                <button className="ghostButton" onClick={signOut}>Sign out</button>
+              ) : (
+                <>
+                  <button className="primaryButton" onClick={() => openAuth("signup")}>Create account</button>
+                  <button className="ghostButton" onClick={() => openAuth("login")}>Log in</button>
+                </>
+              )}
+            </div>
             <label>
               Name
               <input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value || "Guest Player" })} />
@@ -2084,17 +2312,79 @@ export default function App() {
             </label>
           </div>
 
-          <div className="roadmapCard">
+          <div className="roadmapCard grandmasterCard">
             <div className="panelTitle">
               <Sparkles size={18} />
-              <h3>Startup proof</h3>
+              <h3>Grandmaster mindset</h3>
             </div>
-            <ul>
-              <li>Stockfish worker connected</li>
-              <li>{cloud.enabled ? "Firebase cloud enabled" : "Firebase config waiting"}</li>
-              <li>{cloudRoomLive ? "Cloud room live" : "Local room fallback"}</li>
-              <li>Pro monetization screen</li>
-            </ul>
+            <blockquote>
+              "When you see a good move, look for a better one."
+              <span>Emanuel Lasker</span>
+            </blockquote>
+            <blockquote>
+              "Tactics flow from a superior position."
+              <span>Bobby Fischer</span>
+            </blockquote>
+            <blockquote>
+              "Chess is everything: art, science, and sport."
+              <span>Anatoly Karpov</span>
+            </blockquote>
+          </div>
+
+          <div className="roadmapCard levelCard">
+            <div className="panelTitle">
+              <Crown size={18} />
+              <h3>Great level coverage</h3>
+            </div>
+            <div className="levelTags">
+              <span>Stockfish AI</span>
+              <span>Game history</span>
+              <span>Auth + progress</span>
+              <span>Dark / light</span>
+              <span>{cloud.enabled ? "Firebase active" : "Firebase ready"}</span>
+              <span>Mobile board</span>
+              <span>{cloudRoomLive ? "Live cloud rooms" : "Friend links ready"}</span>
+              <span>AI Coach</span>
+              <span>City leaderboard</span>
+              <span>Training academy</span>
+              <span>Generated puzzles</span>
+              <span>Stripe-ready Pro</span>
+            </div>
+          </div>
+
+          <div className="roadmapCard settingsCard">
+            <div className="panelTitle">
+              <Palette size={18} />
+              <h3>{t("preferences")}</h3>
+            </div>
+            <div className="settingsGroup">
+              <span>{t("theme")}</span>
+              <div className="themeOptions">
+                {themeOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    className={theme === option.id ? `themeChoice ${option.id} activeThemeChoice` : `themeChoice ${option.id}`}
+                    onClick={() => updateTheme(option.id)}
+                  >
+                    <strong>{t(option.labelKey as keyof typeof copy.en)}</strong>
+                    <small>{option.description}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="settingsGroup">
+              <span>{t("language")}</span>
+              <div className="languageSwitch">
+                <button className={language === "en" ? "activeLang" : ""} onClick={() => updateLanguage("en")}>
+                  <Languages size={15} />
+                  English
+                </button>
+                <button className={language === "ru" ? "activeLang" : ""} onClick={() => updateLanguage("ru")}>
+                  <Languages size={15} />
+                  Русский
+                </button>
+              </div>
+            </div>
           </div>
         </aside>
       </section>
@@ -2113,6 +2403,15 @@ export default function App() {
                   ? "Firebase Auth is enabled. Accounts work across browsers after deployment."
                   : "Local auth is active. Add Firebase env keys for professional public accounts."}
               </p>
+            </div>
+            <div className="authModeSwitch">
+              <button type="button" className={authMode === "login" ? "activeAuthMode" : ""} onClick={() => setAuthMode("login")}>Log in</button>
+              <button type="button" className={authMode === "signup" ? "activeAuthMode" : ""} onClick={() => setAuthMode("signup")}>Create account</button>
+            </div>
+            <div className="authProof">
+              <span><CheckCircle2 size={15} /> Saved progress</span>
+              <span><CheckCircle2 size={15} /> Cloud rooms</span>
+              <span><CheckCircle2 size={15} /> Coach history</span>
             </div>
             {authMode === "signup" && (
               <label>
