@@ -1,0 +1,1461 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --radius: 8px;
+  --green: #7fa650;
+  --green-deep: #3f6f45;
+  --red: #d4563f;
+  --gold: #d6a94a;
+  --ink: #111715;
+  --paper: #f6f1e6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 22px;
+  transition:
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.app.dark {
+  color: #f6f1e6;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(127, 166, 80, 0.22), transparent 32%),
+    radial-gradient(circle at 82% 0%, rgba(214, 169, 74, 0.14), transparent 28%),
+    linear-gradient(135deg, rgba(9, 13, 12, 0.94), rgba(24, 31, 28, 0.92)),
+    url("https://images.unsplash.com/photo-1529699211952-734e80c4d42b?auto=format&fit=crop&w=1800&q=80")
+      center / cover fixed;
+}
+
+.app.light {
+  color: #17221e;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(127, 166, 80, 0.22), transparent 30%),
+    radial-gradient(circle at 80% 0%, rgba(212, 86, 63, 0.14), transparent 26%),
+    linear-gradient(135deg, rgba(252, 249, 240, 0.95), rgba(227, 237, 224, 0.92)),
+    url("https://images.unsplash.com/photo-1586165368502-1bad197a6461?auto=format&fit=crop&w=1800&q=80")
+      center / cover fixed;
+}
+
+.topbar,
+.brand,
+.topActions,
+.profileCard,
+.gameHeader,
+.headerActions,
+.ghostButton,
+.proButton,
+.authButton,
+.signupButton,
+.primaryButton,
+.panelTitle,
+.modeSwitch,
+.wideButton,
+.sectionHeader,
+.leaderRow,
+.savedGame,
+.savedMeta,
+.heroActions,
+.arenaStrip,
+.authStack {
+  display: flex;
+  align-items: center;
+}
+
+.topbar {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  max-width: 1540px;
+  margin: 0 auto 18px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, #101613 82%, transparent);
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(18px);
+}
+
+.light .topbar {
+  background: rgba(255, 253, 247, 0.78);
+}
+
+.brand {
+  gap: 12px;
+}
+
+.brandMark,
+.avatar {
+  display: grid;
+  place-items: center;
+  color: white;
+}
+
+.brandMark {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--green), var(--green-deep));
+  font-size: 29px;
+  box-shadow: inset 0 -10px 18px rgba(0, 0, 0, 0.18);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 1.28rem;
+}
+
+h2 {
+  margin-top: 4px;
+  font-size: clamp(1.55rem, 3vw, 3rem);
+  line-height: 1.02;
+}
+
+.brand p,
+.profileCard span,
+.empty,
+.eyebrow,
+.savedGame span,
+.priceCard p,
+.roadmapCard li,
+.heroCopy p,
+.quickCards span,
+.lessonCard p,
+.communityCard p,
+.newsPanel p,
+.puzzleCard p {
+  color: color-mix(in srgb, currentColor 68%, transparent);
+}
+
+.topActions {
+  gap: 9px;
+}
+
+.iconButton,
+.ghostButton,
+.authButton,
+.signupButton,
+.proButton,
+.primaryButton,
+.navList button,
+.modeSwitch button,
+.wideButton,
+.textButton {
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: var(--radius);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.iconButton {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+}
+
+.mobileMenu {
+  display: none;
+}
+
+.ghostButton,
+.authButton,
+.signupButton,
+.proButton,
+.primaryButton,
+.wideButton {
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.primaryButton,
+.wideButton {
+  color: white;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--green), var(--green-deep));
+  box-shadow: 0 12px 30px rgba(63, 111, 69, 0.24);
+}
+
+.signupButton,
+.proButton {
+  color: #15140f;
+  border-color: transparent;
+  background: linear-gradient(135deg, #f0cf75, var(--gold));
+  font-weight: 800;
+}
+
+.productShell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 250px;
+  max-width: 1540px;
+  margin: 0 auto;
+  gap: 16px;
+}
+
+.navPanel,
+.mainStage,
+.rightRail,
+.boardStage,
+.sidePanel,
+.dashboardView,
+.profileEditor,
+.roadmapCard {
+  border: 1px solid color-mix(in srgb, currentColor 13%, transparent);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(18px);
+}
+
+.dark .navPanel,
+.dark .mainStage,
+.dark .rightRail,
+.dark .boardStage,
+.dark .sidePanel,
+.dark .dashboardView,
+.dark .profileEditor,
+.dark .roadmapCard {
+  background: rgba(17, 23, 21, 0.82);
+}
+
+.light .navPanel,
+.light .mainStage,
+.light .rightRail,
+.light .boardStage,
+.light .sidePanel,
+.light .dashboardView,
+.light .profileEditor,
+.light .roadmapCard {
+  background: rgba(255, 253, 247, 0.84);
+}
+
+.navPanel,
+.rightRail {
+  align-self: start;
+  padding: 14px;
+}
+
+.profileCard {
+  gap: 10px;
+  padding: 8px 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--red), #9f372a);
+  font-weight: 900;
+}
+
+.profileCard strong,
+.profileCard span {
+  display: block;
+}
+
+.profileCard span {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navList {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0;
+}
+
+.navList button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.navList button.active,
+.modeSwitch .selectedMode {
+  color: white;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--green), var(--green-deep));
+}
+
+.miniStats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.quizNavButton {
+  margin-top: 10px;
+}
+
+.miniStats div {
+  padding: 10px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.miniStats span,
+.miniStats strong {
+  display: block;
+}
+
+.miniStats span {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+}
+
+.mainStage {
+  min-width: 0;
+  padding: 14px;
+}
+
+.homeView {
+  display: grid;
+  gap: 14px;
+}
+
+.heroPanel {
+  position: relative;
+  display: grid;
+  min-height: 440px;
+  grid-template-columns: minmax(0, 1.04fr) minmax(300px, 0.96fr);
+  gap: 18px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  padding: clamp(22px, 4vw, 42px);
+  background:
+    linear-gradient(135deg, rgba(127, 166, 80, 0.28), rgba(214, 169, 74, 0.12)),
+    color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.heroCopy {
+  display: grid;
+  align-content: center;
+  gap: 18px;
+}
+
+.heroCopy h2 {
+  max-width: 720px;
+  font-size: clamp(2.35rem, 5vw, 5.4rem);
+}
+
+.heroCopy p {
+  max-width: 610px;
+  font-size: 1.08rem;
+  line-height: 1.65;
+}
+
+.heroActions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.heroBoardPreview {
+  position: relative;
+  display: grid;
+  min-height: 360px;
+  place-items: center;
+}
+
+.previewGlow {
+  position: absolute;
+  width: min(86%, 420px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(214, 169, 74, 0.18);
+  filter: blur(28px);
+}
+
+.miniBoard {
+  position: relative;
+  display: grid;
+  width: min(88%, 430px);
+  aspect-ratio: 1;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  overflow: hidden;
+  border: 10px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.34);
+  transform: rotate(2deg);
+}
+
+.miniBoard span,
+.puzzleBoard span {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  font-size: clamp(1.1rem, 3vw, 2.1rem);
+}
+
+.previewLight {
+  background: #ead7b5;
+  color: #fff7e7;
+}
+
+.previewDark {
+  background: #6f965f;
+  color: #101514;
+}
+
+.quickCards,
+.puzzleGrid,
+.communityGrid,
+.pricingGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quickCards button,
+.puzzleCard,
+.communityCard,
+.newsPanel,
+.lessonCard,
+.priceCard,
+.coachCard,
+.movesCard,
+.roomCard,
+.insightCard {
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.quickCards button {
+  display: grid;
+  min-height: 170px;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  text-align: left;
+}
+
+.quickCards button:hover,
+.navList button:hover,
+.ghostButton:hover,
+.authButton:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.arenaStrip {
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(212, 86, 63, 0.24), rgba(214, 169, 74, 0.14));
+}
+
+.playGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 14px;
+}
+
+.boardStage,
+.sidePanel,
+.dashboardView {
+  padding: 16px;
+  box-shadow: none;
+}
+
+.gameHeader,
+.sectionHeader {
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.gameHeader h2 {
+  font-size: clamp(2rem, 5vw, 4.8rem);
+  line-height: 0.95;
+}
+
+.sectionLead {
+  max-width: 720px;
+  margin-top: 8px;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  line-height: 1.55;
+}
+
+.headerActions {
+  gap: 8px;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 850;
+  color: var(--gold);
+}
+
+.board {
+  display: grid;
+  width: min(100%, 620px);
+  max-width: calc(100vh - 245px);
+  min-width: 280px;
+  aspect-ratio: 1;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 10px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+}
+
+.square {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  place-items: center;
+  border: 0;
+}
+
+.lightSquare {
+  background: #ead7b5;
+}
+
+.darkSquare {
+  background: #6f965f;
+}
+
+.selected {
+  outline: 4px solid var(--red);
+  outline-offset: -4px;
+}
+
+.target::after {
+  position: absolute;
+  width: 26%;
+  aspect-ratio: 1;
+  content: "";
+  border-radius: 50%;
+  background: rgba(20, 20, 20, 0.3);
+}
+
+.piece {
+  z-index: 1;
+  line-height: 0.82;
+  font-size: clamp(1.6rem, 6.1vmin, 4rem);
+  text-shadow: 0 3px 8px rgba(0, 0, 0, 0.34);
+  transform: translateY(-1px);
+  pointer-events: none;
+}
+
+.piece.w {
+  color: #fff8e8;
+}
+
+.piece.b {
+  color: #101514;
+}
+
+.coord {
+  position: absolute;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 0.7rem;
+  font-weight: 850;
+  pointer-events: none;
+}
+
+.rankCoord {
+  top: 5px;
+  left: 6px;
+}
+
+.fileCoord {
+  right: 6px;
+  bottom: 5px;
+}
+
+.captured {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 1.35rem;
+}
+
+.topCaptured {
+  margin-bottom: 8px;
+}
+
+.bottomCaptured {
+  margin-top: 8px;
+}
+
+.modeSwitch {
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.modeSwitch button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+}
+
+.aiChooser {
+  display: grid;
+  gap: 8px;
+}
+
+.aiLevel {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: var(--radius);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  text-align: left;
+}
+
+.aiLevel strong,
+.aiLevel small {
+  display: block;
+}
+
+.aiLevel small {
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  line-height: 1.35;
+}
+
+.activeAi {
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  background: linear-gradient(135deg, rgba(127, 166, 80, 0.26), rgba(214, 169, 74, 0.12));
+}
+
+.botBadge {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  font-weight: 900;
+}
+
+.botBadge.easy {
+  background: #668c69;
+}
+
+.botBadge.medium {
+  background: #d6a94a;
+  color: #15140f;
+}
+
+.botBadge.pro {
+  background: #d4563f;
+}
+
+.aiRecommend,
+.analyzeButton {
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.coachCard,
+.movesCard,
+.roomCard,
+.aiChooser,
+.insightCard,
+.priceCard,
+.puzzleCard,
+.communityCard,
+.lessonCard,
+.newsPanel {
+  padding: 14px;
+}
+
+.movesCard,
+.roomCard,
+.aiChooser,
+.roadmapCard,
+.newsPanel {
+  margin-top: 12px;
+}
+
+.panelTitle {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.panelTitle h3 {
+  font-size: 1rem;
+}
+
+.coachCard p,
+.roomCard code {
+  color: color-mix(in srgb, currentColor 76%, transparent);
+  line-height: 1.55;
+}
+
+.roomCard code {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wideButton {
+  width: 100%;
+  justify-content: center;
+}
+
+.moveList {
+  display: flex;
+  max-height: 300px;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: auto;
+}
+
+.moveList span {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 0.9rem;
+}
+
+.dashboardView {
+  min-height: 650px;
+}
+
+.reviewRing {
+  display: grid;
+  width: 78px;
+  height: 78px;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  background: conic-gradient(var(--green) 72%, rgba(255, 255, 255, 0.16) 0);
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+
+.coachHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.coachLine {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(127, 166, 80, 0.14), rgba(214, 169, 74, 0.08));
+}
+
+.stockfishPanel {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--gold) 42%, transparent);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(214, 169, 74, 0.16), rgba(127, 166, 80, 0.1));
+}
+
+.stockfishPanel span {
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  line-height: 1.45;
+}
+
+.coachLine span {
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  line-height: 1.5;
+}
+
+.coachSummary,
+.cityCards,
+.liveRooms {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.coachSummary article,
+.cityCards article,
+.liveRooms button,
+.academyHero {
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.coachSummary article,
+.cityCards article,
+.academyHero {
+  padding: 14px;
+}
+
+.coachSummary article div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.coachSummary p,
+.cityCards p {
+  margin-bottom: 12px;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  line-height: 1.45;
+}
+
+.cityCards .activeCity {
+  border-color: color-mix(in srgb, var(--gold) 72%, transparent);
+  background: linear-gradient(135deg, rgba(127, 166, 80, 0.22), rgba(214, 169, 74, 0.12));
+}
+
+.insightGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.insightCard {
+  min-height: 170px;
+}
+
+.insightCard h3,
+.priceCard h3,
+.lessonCard h3,
+.communityCard h3,
+.puzzleCard h3 {
+  margin: 10px 0 8px;
+}
+
+.insightCard p,
+.lessonCard p,
+.communityCard p,
+.puzzleCard p {
+  line-height: 1.55;
+}
+
+.insightCard.good {
+  border-left: 4px solid var(--green);
+}
+
+.insightCard.warning {
+  border-left: 4px solid var(--red);
+}
+
+.insightCard.pro {
+  border-left: 4px solid var(--gold);
+}
+
+.puzzleGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.puzzleCard {
+  display: grid;
+  gap: 12px;
+}
+
+.selectedPuzzleCard {
+  outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+}
+
+.puzzleTrainer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(127, 166, 80, 0.12), rgba(214, 169, 74, 0.08)),
+    color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.puzzleTrainer h3 {
+  margin: 8px 0;
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
+}
+
+.puzzleTrainer p {
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  line-height: 1.55;
+}
+
+.puzzleActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.puzzlePlayBoard {
+  display: grid;
+  width: min(100%, 360px);
+  aspect-ratio: 1;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  overflow: hidden;
+  border: 8px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.24);
+}
+
+.puzzleBoard {
+  display: grid;
+  aspect-ratio: 1;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 6px solid color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.puzzleBoard span {
+  font-size: clamp(0.82rem, 2.3vw, 1.55rem);
+}
+
+.lessonList,
+.historyList {
+  display: grid;
+  gap: 10px;
+}
+
+.youtubeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.compactHeader {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.youtubeCard {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  text-decoration: none;
+}
+
+.youtubeCard span {
+  color: var(--gold);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.youtubeCard p {
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  line-height: 1.5;
+}
+
+.academyHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  background:
+    linear-gradient(135deg, rgba(127, 166, 80, 0.18), rgba(214, 169, 74, 0.1)),
+    color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.academyHero p {
+  margin-top: 8px;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+}
+
+.lessonCard {
+  display: grid;
+  gap: 12px;
+}
+
+.lessonMeta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lessonMeta span {
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+
+.progressTrack {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.progressTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), var(--gold));
+}
+
+.savedGame {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.savedGame strong,
+.savedGame span {
+  display: block;
+}
+
+.savedMeta {
+  gap: 8px;
+}
+
+.savedMeta span {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.emptyState {
+  padding: 28px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+.leaderboard,
+.communityGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.leaderRow {
+  display: grid;
+  grid-template-columns: 52px minmax(130px, 1fr) 1fr 74px 72px 86px 66px;
+  gap: 10px;
+  padding: 13px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.leaderRow.currentUser {
+  color: white;
+  background: linear-gradient(135deg, var(--green), var(--green-deep));
+}
+
+.leaderRow span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.communityGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.communityCard {
+  display: grid;
+  gap: 10px;
+}
+
+.liveRooms {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.liveRooms button {
+  display: grid;
+  gap: 4px;
+  min-height: 82px;
+  padding: 12px;
+  color: inherit;
+  text-align: left;
+}
+
+.liveRooms strong {
+  color: var(--gold);
+}
+
+.liveRooms small {
+  color: color-mix(in srgb, currentColor 64%, transparent);
+}
+
+.communityCard span,
+.puzzleCard span,
+.lessonCard span {
+  color: var(--gold);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.proView {
+  background:
+    linear-gradient(135deg, rgba(212, 86, 63, 0.14), rgba(214, 169, 74, 0.12)),
+    color-mix(in srgb, canvas 78%, transparent);
+}
+
+.pricingGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.priceCard {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.priceCard strong {
+  font-size: 2rem;
+}
+
+.priceCard.highlighted {
+  color: white;
+  background: linear-gradient(135deg, var(--green), var(--green-deep));
+}
+
+.rightRail {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.profileEditor,
+.roadmapCard {
+  padding: 14px;
+  box-shadow: none;
+}
+
+.profileEditor label,
+.authModal label {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  color: color-mix(in srgb, currentColor 75%, transparent);
+  font-size: 0.86rem;
+}
+
+.profileEditor input,
+.authModal input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: var(--radius);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  padding: 0 10px;
+}
+
+.authStack {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.roadmapCard ul {
+  display: grid;
+  gap: 9px;
+  padding-left: 18px;
+  margin: 0;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.authModal,
+.quizModal {
+  position: relative;
+  display: grid;
+  width: min(100%, 470px);
+  gap: 10px;
+  padding: 24px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: var(--radius);
+  color: #f6f1e6;
+  background:
+    linear-gradient(135deg, rgba(127, 166, 80, 0.18), rgba(214, 169, 74, 0.08)),
+    #141b18;
+  box-shadow: 0 30px 110px rgba(0, 0, 0, 0.55);
+}
+
+.quizModal {
+  width: min(100%, 720px);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+}
+
+.authModal p,
+.quizModal p {
+  margin-top: 8px;
+  color: rgba(246, 241, 230, 0.72);
+  line-height: 1.55;
+}
+
+.quizQuestions {
+  display: grid;
+  gap: 12px;
+}
+
+.quizQuestion {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.quizOptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quizOptions button {
+  min-height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  color: inherit;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.quizOptions button.chosen {
+  color: #111715;
+  border-color: transparent;
+  background: #f0cf75;
+  font-weight: 850;
+}
+
+.modalClose,
+.textButton {
+  color: inherit;
+}
+
+.modalClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 1.3rem;
+}
+
+.textButton {
+  min-height: 38px;
+  border: 0;
+  background: transparent;
+  color: #f0cf75;
+}
+
+@media (max-width: 1350px) {
+  .productShell {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .rightRail {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .productShell,
+  .playGrid,
+  .heroPanel,
+  .puzzleTrainer {
+    grid-template-columns: 1fr;
+  }
+
+  .quickCards,
+  .puzzleGrid,
+  .communityGrid,
+  .youtubeGrid,
+  .coachSummary,
+  .cityCards,
+  .liveRooms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .heroBoardPreview {
+    min-height: 280px;
+  }
+}
+
+@media (max-width: 760px) {
+  .app {
+    padding: 12px;
+  }
+
+  .topbar {
+    top: 8px;
+  }
+
+  .brand p,
+  .proButton,
+  .authButton,
+  .signupButton,
+  .rightRail {
+    display: none;
+  }
+
+  .mobileMenu {
+    display: grid;
+  }
+
+  .productShell {
+    grid-template-columns: 1fr;
+  }
+
+  .navPanel {
+    display: none;
+  }
+
+  .productShell.navOpen .navPanel {
+    display: block;
+  }
+
+  .navList {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .navList button {
+    justify-content: center;
+    padding: 0 8px;
+    font-size: 0.86rem;
+  }
+
+  .navList button svg {
+    display: none;
+  }
+
+  .mainStage,
+  .boardStage,
+  .sidePanel,
+  .dashboardView {
+    padding: 10px;
+  }
+
+  .heroPanel {
+    min-height: auto;
+    padding: 18px;
+  }
+
+  .heroCopy h2 {
+    font-size: clamp(2rem, 13vw, 3.2rem);
+  }
+
+  .quickCards,
+  .puzzleGrid,
+  .communityGrid,
+  .youtubeGrid,
+  .insightGrid,
+  .pricingGrid,
+  .coachSummary,
+  .cityCards,
+  .liveRooms {
+    grid-template-columns: 1fr;
+  }
+
+  .arenaStrip,
+  .gameHeader,
+  .sectionHeader,
+  .coachHeaderActions,
+  .academyHero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .headerActions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .leaderRow {
+    grid-template-columns: 42px 1fr 72px;
+  }
+
+  .leaderRow span:nth-child(3),
+  .leaderRow span:nth-child(5),
+  .leaderRow span:nth-child(6),
+  .leaderRow span:nth-child(7) {
+    display: none;
+  }
+}

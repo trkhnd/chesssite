@@ -1,0 +1,15 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasAny(['fen', 'pgn', 'host', 'city', 'sender']);
+    }
+  }
+}
