@@ -5,6 +5,8 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Crown,
   Database,
@@ -65,7 +67,7 @@ type AiLevel = "easy" | "medium" | "pro";
 type CoachMode = "beginner" | "intermediate" | "advanced";
 type ThemeName = "classic" | "midnight" | "royal" | "carbon";
 type Language = "en" | "ru";
-type View = "home" | "play" | "game" | "puzzles" | "learn" | "coach" | "history" | "community" | "leaderboard" | "pro";
+type View = "home" | "play" | "game" | "analysis" | "puzzles" | "learn" | "coach" | "history" | "community" | "leaderboard" | "pro";
 
 type TimeControl = {
   id: string;
@@ -109,6 +111,35 @@ type SavedGame = {
   coach: CoachInsight[];
   city: string;
   reviewScore: number | null;
+  status?: string;
+  timeControl?: string;
+  opponent?: string;
+};
+
+type AnalysisMoveReview = {
+  ply: number;
+  san: string;
+  quality: "brilliant" | "good" | "inaccuracy" | "mistake" | "blunder";
+  bestMove: string;
+  evaluation: string;
+  explanation: string;
+  danger: string;
+  principle: string;
+  trainingTip: string;
+};
+
+type SavedGameAnalysis = {
+  gameId: string;
+  moveReviews: AnalysisMoveReview[];
+  summary: {
+    accuracy: number;
+    biggestMistake: string;
+    bestMove: string;
+    openingAdvice: string;
+    middlegameAdvice: string;
+    endgameAdvice: string;
+    training: string[];
+  };
 };
 
 type CoachInsight = {
@@ -1262,6 +1293,114 @@ function analyzeGame(history: Move[], game: Chess, analysis: StockfishAnalysis |
   return insights;
 }
 
+function parseSavedGameMoves(savedGame: SavedGame) {
+  const replay = new Chess();
+  if (savedGame.pgn) {
+    replay.loadPgn(savedGame.pgn);
+  }
+  const moves = replay.history({ verbose: true });
+  const positions = [new Chess().fen()];
+  const builder = new Chess();
+  moves.forEach((move) => {
+    builder.move({
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion || "q",
+    });
+    positions.push(builder.fen());
+  });
+  return { moves, positions };
+}
+
+function getMoveQualityLabel(scoreDelta: number, move: Move, bestSan: string) {
+  if (move.san === bestSan && (move.san.includes("#") || move.captured || move.san.includes("+"))) return "brilliant";
+  if (move.san === bestSan || scoreDelta <= 0.6) return "good";
+  if (scoreDelta <= 1.6) return "inaccuracy";
+  if (scoreDelta <= 3.2) return "mistake";
+  return "blunder";
+}
+
+function buildCoachMoveReview(params: {
+  gameBefore: Chess;
+  move: Move;
+  bestMove: Move | null;
+  analysis: StockfishAnalysis | null;
+  coachMode: CoachMode;
+  ply: number;
+}): AnalysisMoveReview {
+  const actualScore = scoreMove(params.gameBefore, params.move);
+  const bestScore = params.bestMove ? scoreMove(params.gameBefore, params.bestMove) : actualScore;
+  const scoreDelta = Math.max(0, bestScore - actualScore);
+  const bestSan = params.bestMove?.san || params.move.san;
+  const quality = getMoveQualityLabel(scoreDelta, params.move, bestSan);
+  const evaluation = params.analysis ? formatEvaluation(params.analysis) : `${scoreDelta.toFixed(1)} heuristic`;
+  const repeatedPieceMove = params.ply <= 14 && params.move.piece !== "p" && params.gameBefore.history({ verbose: true }).some((item) => item.color === params.move.color && item.piece === params.move.piece && item.to === params.move.from);
+  const kingUnsafe = !params.gameBefore.history({ verbose: true }).some((item) => ["O-O", "O-O-O"].includes(item.san)) && params.ply <= 20;
+  const explanation = coachCopyByMode(
+    params.coachMode,
+    params.move.san === bestSan
+      ? `Move ${params.ply}: ${params.move.san} was solid. It matched the strongest practical move in this position.`
+      : `Move ${params.ply}: ${params.move.san} was ${quality}. A better move was ${bestSan} because it improved development, safety, or tactics more directly.`,
+    params.move.san === bestSan
+      ? `Move ${params.ply}: ${params.move.san} kept the position under control and respected the main plan.`
+      : `Move ${params.ply}: ${params.move.san} was ${quality}. ${bestSan} was stronger because it coordinated pieces better and reduced tactical risk.`,
+    params.move.san === bestSan
+      ? `Move ${params.ply}: ${params.move.san} aligned with the top engine candidate and kept the strategic balance.`
+      : `Move ${params.ply}: ${params.move.san} scored as a ${quality}. ${bestSan} preserved more evaluation and handled the tactical details more accurately.`,
+  );
+  const danger = repeatedPieceMove
+    ? "You spent another tempo on the same piece while other pieces still needed development."
+    : kingUnsafe
+      ? "Your king safety was still unresolved, so tactical shots against the center could appear quickly."
+      : params.move.captured
+        ? "After winning material, the main danger was relaxing and missing your opponent's counterplay."
+        : "The danger was missing a forcing line: checks, captures, or a loose piece after your move.";
+  const principle = params.ply <= 16
+    ? "Opening principle: develop pieces, fight for the center, and castle before starting side attacks."
+    : params.gameBefore.history({ verbose: true }).length >= 30
+      ? "Endgame principle: improve king activity and avoid unnecessary weaknesses."
+      : "Middlegame principle: improve the worst piece and compare forcing moves before quiet ones.";
+  const trainingTip = quality === "good"
+    ? "Replay this position once and explain in your own words why the move worked."
+    : `Set this position up again and compare ${params.move.san} with ${bestSan} before making the next decision.`;
+
+  return {
+    ply: params.ply,
+    san: params.move.san,
+    quality,
+    bestMove: bestSan,
+    evaluation,
+    explanation,
+    danger,
+    principle,
+    trainingTip,
+  };
+}
+
+function explainSavedReview(review: AnalysisMoveReview, mode: CoachMode) {
+  return coachCopyByMode(
+    mode,
+    review.quality === "good" || review.quality === "brilliant"
+      ? `Move ${review.ply}: ${review.san} was a strong choice. It kept the position healthy and followed a sound practical idea.`
+      : `Move ${review.ply}: ${review.san} was a ${review.quality}. A better move was ${review.bestMove} because it improved safety, development, or tactics more directly.`,
+    review.quality === "good" || review.quality === "brilliant"
+      ? `Move ${review.ply}: ${review.san} fit the position well and stayed close to the best plan.`
+      : `Move ${review.ply}: ${review.san} was a ${review.quality}. ${review.bestMove} would have coordinated pieces better and reduced tactical danger.`,
+    review.quality === "good" || review.quality === "brilliant"
+      ? `Move ${review.ply}: ${review.san} matched the strongest practical continuation and preserved evaluation.`
+      : `Move ${review.ply}: ${review.san} was a ${review.quality}. ${review.bestMove} was superior because it handled the calculation and structural details more accurately.`,
+  );
+}
+
+function getSavedReviewTrainingTip(review: AnalysisMoveReview, mode: CoachMode) {
+  return coachCopyByMode(
+    mode,
+    review.quality === "good" ? "Replay the position once and explain the move in your own words." : `Replay this moment and compare ${review.san} with ${review.bestMove}.`,
+    review.quality === "good" ? "Use this move as a model and identify which piece improved the most." : `Set the position up again and explain why ${review.bestMove} keeps more control.`,
+    review.quality === "good" ? "Check whether the move improved your worst piece, king safety, or tactical pressure." : `Measure the evaluation swing and identify the exact tactical or positional detail ${review.san} missed.`,
+  );
+}
+
 function estimateReviewScore(history: Move[], game: Chess) {
   if (history.length < 2) return null;
   const captures = history.filter((move) => move.color === "w" && move.captured).length;
@@ -1342,6 +1481,19 @@ function gamePath() {
 
 function isGamePath() {
   return window.location.pathname === "/play/game";
+}
+
+function analysisPath(gameId: string) {
+  return `/analysis/${gameId}`;
+}
+
+function getAnalysisIdFromLocation() {
+  const match = window.location.pathname.match(/^\/analysis\/([^/]+)$/);
+  return match?.[1] || "";
+}
+
+function isAnalysisPath() {
+  return /^\/analysis\/[^/]+$/.test(window.location.pathname);
 }
 
 function makeTimeControl(minutes: number, incrementSeconds: number): TimeControl {
@@ -1434,13 +1586,14 @@ function normalizeAuthMessage(message: string, signedIn: boolean) {
 
 export default function App() {
   const initialRoomId = getRoomIdFromLocation();
+  const initialAnalysisId = getAnalysisIdFromLocation();
   const [game, setGame] = useState(() => new Chess());
   const [selected, setSelected] = useState<Square | null>(null);
   const [legalTargets, setLegalTargets] = useState<Square[]>([]);
   const [history, setHistory] = useState<Move[]>([]);
   const [theme, setTheme] = useState<ThemeName>(() => normalizeTheme(loadJson("cm-theme", "midnight")));
   const [language, setLanguage] = useState<Language>(() => loadJson("cm-language", "en"));
-  const [view, setView] = useState<View>(initialRoomId || isGamePath() ? "game" : "home");
+  const [view, setView] = useState<View>(initialAnalysisId || isAnalysisPath() ? "analysis" : initialRoomId || isGamePath() ? "game" : "home");
   const [mode, setMode] = useState<LocalGameMode>(initialRoomId ? "friend" : "ai");
   const [aiLevel, setAiLevel] = useState<AiLevel>(() => loadJson("cm-ai-level", "medium"));
   const [selectedTimeControlId, setSelectedTimeControlId] = useState(() => loadJson("cm-time-control-id", defaultTimeControl.id));
@@ -1449,6 +1602,10 @@ export default function App() {
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [socketSessionToken, setSocketSessionTokenState] = useState("");
   const [savedGames, setSavedGames] = useState<SavedGame[]>(() => loadJson("cm-games", []));
+  const [analysisCache, setAnalysisCache] = useState<Record<string, SavedGameAnalysis>>(() => loadJson("cm-analysis-cache", {}));
+  const [selectedAnalysisGameId, setSelectedAnalysisGameId] = useState(initialAnalysisId);
+  const [analysisMoveIndex, setAnalysisMoveIndex] = useState(0);
+  const [analysisPending, setAnalysisPending] = useState(false);
   const [roomId, setRoomId] = useState(initialRoomId);
   const [toast, setToast] = useState("Take the Elo quiz first. Chess Master will not invent your level.");
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -1526,6 +1683,22 @@ export default function App() {
   const t = (key: keyof typeof copy.en) => copy[language][key] ?? copy.en[key];
   const isGameFinished = Boolean(mode === "friend" ? roomState?.finished : resultOverride || game.isGameOver());
   const showGameAnalysis = view === "game" && isGameFinished && analysisOpen;
+  const selectedAnalysisGame = useMemo(
+    () => savedGames.find((savedGame) => savedGame.id === selectedAnalysisGameId) || null,
+    [savedGames, selectedAnalysisGameId],
+  );
+  const analysisReplay = useMemo(
+    () => (selectedAnalysisGame ? parseSavedGameMoves(selectedAnalysisGame) : null),
+    [selectedAnalysisGame],
+  );
+  const analysisPosition = useMemo(() => {
+    if (!analysisReplay) return new Chess();
+    return new Chess(analysisReplay.positions[Math.min(analysisMoveIndex, analysisReplay.positions.length - 1)]);
+  }, [analysisReplay, analysisMoveIndex]);
+  const analysisBoard = useMemo(() => createBoard(analysisPosition), [analysisPosition]);
+  const selectedAnalysis = selectedAnalysisGameId ? analysisCache[selectedAnalysisGameId] || null : null;
+  const currentAnalysisReview =
+    selectedAnalysis && analysisMoveIndex > 0 ? selectedAnalysis.moveReviews[analysisMoveIndex - 1] || null : null;
 
   const leaderboard = useMemo(() => {
     const userStreak = savedGames.filter((savedGame) => savedGame.result === "1-0").length;
@@ -1635,6 +1808,10 @@ export default function App() {
   }, [savedGames]);
 
   useEffect(() => {
+    localStorage.setItem("cm-analysis-cache", JSON.stringify(analysisCache));
+  }, [analysisCache]);
+
+  useEffect(() => {
     localStorage.setItem("cm-theme", JSON.stringify(theme));
   }, [theme]);
 
@@ -1721,6 +1898,18 @@ export default function App() {
           coach: [],
           city: profile.city,
           reviewScore: null,
+          status: String(item.status || ""),
+          timeControl: typeof item.summary === "string" && item.summary.includes("+") ? String(item.summary) : "",
+          opponent:
+            item.mode === "friend"
+              ? String(
+                  (
+                    (item.white as { name?: string } | undefined)?.name === profile.name
+                      ? (item.black as { name?: string } | undefined)?.name
+                      : (item.white as { name?: string } | undefined)?.name
+                  ) || "Friend",
+                )
+              : aiProfiles[aiLevel].name,
         })) as SavedGame[];
         setSavedGames(mapped);
       })
@@ -1731,10 +1920,17 @@ export default function App() {
   useEffect(() => {
     const handlePopState = () => {
       const nextRoomId = getRoomIdFromLocation();
+      const nextAnalysisId = getAnalysisIdFromLocation();
       if (nextRoomId) {
         setRoomId(nextRoomId);
         setView("game");
         setMode("friend");
+        return;
+      }
+      if (nextAnalysisId) {
+        setSelectedAnalysisGameId(nextAnalysisId);
+        setAnalysisMoveIndex(0);
+        setView("analysis");
         return;
       }
       if (isGamePath()) {
@@ -2074,6 +2270,14 @@ export default function App() {
       coach: coachReport,
       city: profile.city,
       reviewScore,
+      status: statusOverride || getStatus(game),
+      timeControl: getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl),
+      opponent:
+        mode === "friend"
+          ? roomState?.players.black?.name || roomState?.players.white.name || "Friend"
+          : mode === "ai"
+            ? aiProfiles[aiLevel].name
+            : "Local board",
     };
     setSavedGames((current) => [saved, ...current].slice(0, 20));
     if (profile.signedIn && mode !== "friend") {
@@ -2472,6 +2676,130 @@ export default function App() {
     setToast(best ? `Stockfish recommends ${best.san} (${scoreText}).` : "Analysis refreshed with fallback positional advice.");
   }
 
+  function openSavedGameView(savedGame: SavedGame) {
+    const replay = new Chess();
+    if (savedGame.pgn) {
+      replay.loadPgn(savedGame.pgn);
+    }
+    setMode(savedGame.mode === "friend" ? "friend" : savedGame.mode === "local" ? "local" : "ai");
+    setRoomId("");
+    setRoomState(null);
+    setFriendColor(null);
+    syncGame(replay);
+    setResultOverride(savedGame.result === "In progress" ? null : savedGame.result);
+    setStatusOverride(savedGame.status || null);
+    setView("game");
+    setAnalysisOpen(false);
+    window.history.replaceState(null, "", gamePath());
+    setToast(`Loaded ${savedGame.mode} game from ${formatDate(savedGame.date)}.`);
+  }
+
+  async function analyzeSavedGame(savedGame: SavedGame) {
+    setSelectedAnalysisGameId(savedGame.id);
+    setAnalysisMoveIndex(0);
+    setView("analysis");
+    window.history.replaceState(null, "", analysisPath(savedGame.id));
+
+    if (analysisCache[savedGame.id]) {
+      setToast("Saved analysis opened.");
+      return;
+    }
+
+    const replayData = parseSavedGameMoves(savedGame);
+    if (replayData.moves.length === 0) {
+      setToast("This saved game has no moves to analyze yet.");
+      return;
+    }
+
+    setAnalysisPending(true);
+
+    try {
+      const moveReviews: AnalysisMoveReview[] = [];
+      const walker = new Chess();
+
+      for (let index = 0; index < replayData.moves.length; index += 1) {
+        const move = replayData.moves[index];
+        const before = new Chess(walker.fen());
+        let engineAnalysis: StockfishAnalysis | null = null;
+
+        if (canUseStockfish()) {
+          try {
+            engineAnalysis = await analyzeFen(before.fen(), 10);
+          } catch {
+            engineAnalysis = null;
+          }
+        }
+
+        const bestMove =
+          engineAnalysis?.bestMove ? playUciMove(new Chess(before.fen()), engineAnalysis.bestMove) : findBestMove(before);
+
+        moveReviews.push(
+          buildCoachMoveReview({
+            gameBefore: before,
+            move,
+            bestMove,
+            analysis: engineAnalysis,
+            coachMode,
+            ply: index + 1,
+          }),
+        );
+
+        walker.move({
+          from: move.from,
+          to: move.to,
+          promotion: move.promotion || "q",
+        });
+      }
+
+      const biggestMistake = [...moveReviews]
+        .reverse()
+        .find((item) => item.quality === "blunder" || item.quality === "mistake") || moveReviews[moveReviews.length - 1];
+      const bestReviewedMove = moveReviews.find((item) => item.quality === "brilliant" || item.quality === "good") || moveReviews[0];
+      const accuracy = Math.max(
+        42,
+        Math.min(
+          97,
+          Math.round(
+            moveReviews.reduce((score, item) => {
+              if (item.quality === "brilliant") return score + 1;
+              if (item.quality === "good") return score + 0.86;
+              if (item.quality === "inaccuracy") return score + 0.62;
+              if (item.quality === "mistake") return score + 0.38;
+              return score + 0.18;
+            }, 0) /
+              moveReviews.length *
+              100,
+          ),
+        ),
+      );
+
+      const analysisResult: SavedGameAnalysis = {
+        gameId: savedGame.id,
+        moveReviews,
+        summary: {
+          accuracy,
+          biggestMistake: `Move ${biggestMistake.ply}: ${biggestMistake.explanation}`,
+          bestMove: `Move ${bestReviewedMove.ply}: ${bestReviewedMove.bestMove}`,
+          openingAdvice: moveReviews.slice(0, Math.min(10, moveReviews.length)).some((item) => /Opening principle/.test(item.principle))
+            ? "Castle earlier, develop more pieces before repeat moves, and keep the queen flexible."
+            : "Your opening was stable. Keep comparing development speed with king safety.",
+          middlegameAdvice: "Before each attacking move, compare checks, captures, and the safety of your least protected piece.",
+          endgameAdvice: "When material comes off, centralize the king faster and avoid creating new pawn weaknesses.",
+          training: [
+            "10 minutes of tactics with checks and loose-piece motifs",
+            "One saved game review with move-by-move comparison",
+            "One short endgame drill focusing on king activity",
+          ],
+        },
+      };
+
+      setAnalysisCache((current) => ({ ...current, [savedGame.id]: analysisResult }));
+      setToast("Saved game analysis completed.");
+    } finally {
+      setAnalysisPending(false);
+    }
+  }
+
   async function joinCommunityRoom(label: string) {
     setMode("friend");
     setToast(`${label} selected. Creating a live room for this community game.`);
@@ -2857,7 +3185,7 @@ export default function App() {
           </div>
         </section>
       ) : (
-      <section className={`productShell ${mobileNavOpen ? "navOpen" : ""} ${view === "game" ? "gameShell" : ""}`}>
+      <section className={`productShell ${mobileNavOpen ? "navOpen" : ""} ${view === "game" || view === "analysis" ? "gameShell" : ""}`}>
         <aside className="navPanel">
           <div className="profileCard">
             <div className="avatar">{profile.name.slice(0, 1).toUpperCase()}</div>
@@ -3396,6 +3724,230 @@ export default function App() {
             </>
           )}
 
+          {view === "analysis" && (
+            <section className="dashboardView analysisPage">
+              <div className="sectionHeader">
+                <div>
+                  <span className="eyebrow">Game analysis</span>
+                  <h2>{selectedAnalysisGame ? `Review ${selectedAnalysisGame.result}` : "Saved game review"}</h2>
+                  <p className="sectionLead">
+                    Step through a finished game move by move. Coach comments update per move and never interrupt live play.
+                  </p>
+                </div>
+                <div className="headerActions">
+                  <button className="ghostButton" onClick={() => setView("history")}>
+                    <History size={16} />
+                    Back to history
+                  </button>
+                  {selectedAnalysisGame && (
+                    <button className="ghostButton" onClick={() => openSavedGameView(selectedAnalysisGame)}>
+                      <Play size={16} />
+                      View board
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {!selectedAnalysisGame || !analysisReplay ? (
+                <div className="emptyState">Choose a saved game from History to open analysis.</div>
+              ) : (
+                <>
+                  <div className="analysisLayout">
+                    <section className="analysisBoardShell">
+                      <div className="analysisStatusBar">
+                        <div>
+                          <span className="eyebrow">{selectedAnalysisGame.mode} · {selectedAnalysisGame.timeControl || "Saved game"}</span>
+                          <strong>{selectedAnalysisGame.opponent || "Training opponent"}</strong>
+                        </div>
+                        <div className="analysisMiniStats">
+                          <span>Move {Math.min(analysisMoveIndex, analysisReplay.moves.length)} / {analysisReplay.moves.length}</span>
+                          <span>{selectedAnalysis?.summary.accuracy ? `${selectedAnalysis.summary.accuracy}% accuracy` : analysisPending ? "Analyzing..." : "Review pending"}</span>
+                        </div>
+                      </div>
+
+                      <div className="analysisBoardStage">
+                        <div className="board" aria-label="Analysis chess board">
+                          {analysisBoard.map(({ square, piece }, index) => {
+                            const isLight = (Math.floor(index / 8) + index) % 2 === 0;
+                            const currentMove = analysisMoveIndex > 0 ? analysisReplay.moves[analysisMoveIndex - 1] : null;
+                            const isHighlighted = currentMove ? currentMove.from === square || currentMove.to === square : false;
+                            return (
+                              <div
+                                key={`analysis-${square}`}
+                                className={[
+                                  "square",
+                                  isLight ? "lightSquare" : "darkSquare",
+                                  isHighlighted ? "analysisHighlight" : "",
+                                ].join(" ")}
+                              >
+                                <span className={piece ? `piece ${piece.color}` : "piece"}>
+                                  {piece ? pieceIcons[`${piece.color}${piece.type}`] : ""}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="analysisControls">
+                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex(0)} disabled={analysisMoveIndex === 0}>
+                          Jump to start
+                        </button>
+                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex((current) => Math.max(0, current - 1))} disabled={analysisMoveIndex === 0}>
+                          <ChevronLeft size={16} />
+                          Previous
+                        </button>
+                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex((current) => Math.min(analysisReplay.moves.length, current + 1))} disabled={analysisMoveIndex >= analysisReplay.moves.length}>
+                          Next
+                          <ChevronRight size={16} />
+                        </button>
+                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex(analysisReplay.moves.length)} disabled={analysisMoveIndex >= analysisReplay.moves.length}>
+                          Jump to end
+                        </button>
+                      </div>
+                    </section>
+
+                    <aside className="analysisSideRail">
+                      <div className="movesCard">
+                        <div className="panelTitle">
+                          <History size={19} />
+                          <h3>Move list</h3>
+                        </div>
+                        <div className="analysisMoveList">
+                          {analysisReplay.moves.map((move, index) => (
+                            <button
+                              key={`analysis-move-${index}-${move.san}`}
+                              className={analysisMoveIndex === index + 1 ? "analysisMoveButton activeAnalysisMove" : "analysisMoveButton"}
+                              onClick={() => setAnalysisMoveIndex(index + 1)}
+                            >
+                              <span>{index % 2 === 0 ? `${Math.floor(index / 2) + 1}.` : "..."}</span>
+                              <strong>{move.san}</strong>
+                              <small>{selectedAnalysis?.moveReviews[index]?.quality || "pending"}</small>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="coachCard analysisCoachCard">
+                        <div className="panelTitle">
+                          <Brain size={19} />
+                          <h3>Coach review</h3>
+                        </div>
+                        <div className="coachModes">
+                          {(["beginner", "intermediate", "advanced"] as CoachMode[]).map((modeName) => (
+                            <button
+                              key={`analysis-${modeName}`}
+                              className={coachMode === modeName ? "activeCoachMode" : ""}
+                              onClick={() => setCoachMode(modeName)}
+                            >
+                              {modeName}
+                            </button>
+                          ))}
+                        </div>
+                        {analysisPending ? (
+                          <p>Analyzing the saved game move by move...</p>
+                        ) : currentAnalysisReview ? (
+                          <div className="coachBulletPanel">
+                            <div>
+                              <span>Move review</span>
+                              <strong>{currentAnalysisReview.quality} · {currentAnalysisReview.san}</strong>
+                            </div>
+                            <div>
+                              <span>Best move</span>
+                              <strong>{currentAnalysisReview.bestMove}</strong>
+                            </div>
+                            <div>
+                              <span>Evaluation</span>
+                              <strong>{currentAnalysisReview.evaluation}</strong>
+                            </div>
+                            <div>
+                              <span>Why it matters</span>
+                              <p>{explainSavedReview(currentAnalysisReview, coachMode)}</p>
+                            </div>
+                            <div>
+                              <span>Danger missed</span>
+                              <p>{currentAnalysisReview.danger}</p>
+                            </div>
+                            <div>
+                              <span>Principle</span>
+                              <p>{currentAnalysisReview.principle}</p>
+                            </div>
+                            <div>
+                              <span>Training tip</span>
+                              <p>{getSavedReviewTrainingTip(currentAnalysisReview, coachMode)}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <p>Step to a move to see the coach comment for that moment.</p>
+                        )}
+                      </div>
+                    </aside>
+                  </div>
+
+                  {selectedAnalysis && (
+                    <section className="trainingPlan compactTrainingPlan">
+                      <div className="trainingHeader">
+                        <div>
+                          <span className="eyebrow">Final summary</span>
+                          <h3>{selectedAnalysis.summary.accuracy}% accuracy estimate</h3>
+                          <p>{selectedAnalysis.summary.biggestMistake}</p>
+                        </div>
+                        <div className="planBadge">
+                          <Brain size={18} />
+                          {selectedAnalysis.summary.bestMove}
+                        </div>
+                      </div>
+                      <div className="insightGrid">
+                        <article className="insightCard warning">
+                          <h3>Opening advice</h3>
+                          <p>{selectedAnalysis.summary.openingAdvice}</p>
+                        </article>
+                        <article className="insightCard pro">
+                          <h3>Middlegame advice</h3>
+                          <p>{selectedAnalysis.summary.middlegameAdvice}</p>
+                        </article>
+                        <article className="insightCard good">
+                          <h3>Endgame advice</h3>
+                          <p>{selectedAnalysis.summary.endgameAdvice}</p>
+                        </article>
+                        <article className="insightCard pro">
+                          <h3>Training recommendations</h3>
+                          <p>{selectedAnalysis.summary.training.join(" · ")}</p>
+                        </article>
+                      </div>
+                    </section>
+                  )}
+
+                  <div className="gameResources">
+                    <div className="booksGrid compactBooksGrid">
+                      {chessBooks.slice(0, 3).map((book) => (
+                        <article className="bookCard" key={`analysis-${book.title}`}>
+                          <span>{book.tag}</span>
+                          <h3>{book.title}</h3>
+                          <strong>{book.author}</strong>
+                          <p>{book.reason}</p>
+                          <small>{book.level}</small>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="roomCard">
+                      <div className="panelTitle">
+                        <BookOpen size={18} />
+                        <h3>Recommended study plan</h3>
+                      </div>
+                      <p>10 min tactics · 10 min endgames · 15 min saved-game analysis · 1 rapid game with review.</p>
+                      <div className="recentGames">
+                        <div className="recentGameRow"><strong>Opening</strong><span>Review development and early queen moves</span></div>
+                        <div className="recentGameRow"><strong>Middlegame</strong><span>Scan checks, captures, and loose pieces before each decision</span></div>
+                        <div className="recentGameRow"><strong>Endgame</strong><span>Centralize the king and simplify only when it helps conversion</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
           {view === "puzzles" && (
             <section className="dashboardView">
               <div className="sectionHeader">
@@ -3637,6 +4189,7 @@ export default function App() {
                 <div>
                   <span className="eyebrow">Saved games</span>
                   <h2>Your training archive</h2>
+                  <p className="sectionLead">Open a saved game, step through it, and launch a full coach review without interrupting live play.</p>
                 </div>
                 <button className="ghostButton" onClick={() => saveGame("manual")}>
                   <Save size={16} />
@@ -3651,18 +4204,55 @@ export default function App() {
                 ) : (
                   savedGames.map((savedGame) => (
                     <article className="savedGame" key={savedGame.id}>
-                      <div>
+                      <div className="savedGameMain">
                         <strong>{savedGame.result}</strong>
-                        <span>{formatDate(savedGame.date)} · {savedGame.mode === "ai" ? "AI game" : "Friend room"} · {savedGame.city}</span>
+                        <span>{formatDate(savedGame.date)} · {savedGame.mode === "ai" ? "AI game" : savedGame.mode === "friend" ? "Friend room" : "One-device"} · {savedGame.city}</span>
+                        <small>{savedGame.opponent || "Training opponent"} · {savedGame.timeControl || "Saved game"} · {savedGame.moves.length} moves</small>
                       </div>
-                      <div className="savedMeta">
+                      <div className="savedMeta savedMetaStack">
                         <span>{getHistoryScoreLabel(savedGame.reviewScore)}</span>
-                        <span>{savedGame.moves.length} moves</span>
+                        <span>{savedGame.status || "Saved"}</span>
+                      </div>
+                      <div className="savedActions">
+                        <button className="ghostButton" onClick={() => openSavedGameView(savedGame)}>
+                          View game
+                        </button>
+                        <button className="primaryButton" onClick={() => void analyzeSavedGame(savedGame)}>
+                          <Brain size={16} />
+                          Analyze with Coach
+                        </button>
                       </div>
                     </article>
                   ))
                 )}
               </div>
+              <section className="trainingPlan compactTrainingPlan">
+                <div className="trainingHeader">
+                  <div>
+                    <span className="eyebrow">Recommended study plan</span>
+                    <h3>Turn every saved game into the next lesson</h3>
+                    <p>Use your archive as the center of improvement: tactics, endgames, one review block, and one practical game.</p>
+                  </div>
+                </div>
+                <div className="missionGrid">
+                  {[
+                    { title: "10 min tactics", text: "Solve checks, forks, and hanging-piece puzzles before opening your saved game." },
+                    { title: "10 min endgames", text: "Practice king activity and simple pawn endings after your tactical warm-up." },
+                    { title: "15 min analysis", text: "Open one saved game and compare your move with the best practical continuation." },
+                    { title: "1 rapid game", text: "Play one fresh rapid game and save it for the next review cycle." },
+                  ].map((item) => (
+                    <article className="missionCard" key={item.title}>
+                      <div className="missionIcon">
+                        <BookOpen size={22} />
+                      </div>
+                      <div>
+                        <h4>{item.title}</h4>
+                        <p>{item.text}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
               <div className="booksGrid">
                 {chessBooks.slice(2, 5).map((book) => (
                   <article className="bookCard" key={`history-${book.title}`}>
@@ -3918,7 +4508,7 @@ export default function App() {
           )}
         </section>
 
-        {view !== "game" && <aside className="rightRail">
+        {view !== "game" && view !== "analysis" && <aside className="rightRail">
           <div className="profileEditor">
             <div className="panelTitle">
               <KeyRound size={18} />
