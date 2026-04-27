@@ -9,6 +9,8 @@ import {
   Crown,
   Database,
   Dumbbell,
+  Eye,
+  EyeOff,
   ExternalLink,
   Flame,
   History,
@@ -32,17 +34,21 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  cloud,
-  loadCloudProfile,
-  loginCloud,
-  logoutCloud,
-  observeCloudUser,
-  saveCloudProfile,
-  signUpCloud,
-  updateCloudRoom,
-  upsertCloudRoom,
-  watchCloudRoom,
-} from "./lib/firebase";
+  createFriendRoom,
+  getHistory,
+  getSession,
+  loginUser,
+  logoutUser,
+  patchProfile,
+  registerUser,
+  saveHistory,
+  sendCoachTipEmail,
+  sendRoomInvite,
+  type ApiUser,
+  type NotificationSettings,
+  type RoomState,
+} from "./lib/api";
+import { getSocket } from "./lib/socket";
 import { analyzeFen, canUseStockfish, type StockfishAnalysis } from "./lib/stockfish";
 
 type BoardSquare = {
@@ -55,26 +61,33 @@ type BoardSquare = {
 
 type GameMode = "ai" | "friend";
 type AiLevel = "easy" | "medium" | "pro";
+type CoachMode = "beginner" | "intermediate" | "advanced";
 type ThemeName = "classic" | "midnight" | "royal" | "carbon";
 type Language = "en" | "ru";
 type View = "home" | "play" | "puzzles" | "learn" | "coach" | "history" | "community" | "leaderboard" | "pro";
 
 type Profile = {
+  id?: string;
   name: string;
   city: string;
   rating: number | null;
   pro: boolean;
   email: string;
+  avatar: string;
+  notifications: NotificationSettings;
   signedIn: boolean;
 };
 
-type Account = {
+type AuthFormState = {
   name: string;
-  city: string;
-  rating: number | null;
-  pro: boolean;
   email: string;
   password: string;
+  confirmPassword: string;
+  city: string;
+};
+
+type AuthFieldErrors = Partial<Record<keyof AuthFormState, string>> & {
+  form?: string;
 };
 
 type SavedGame = {
@@ -108,12 +121,6 @@ type Puzzle = {
   };
 };
 
-type RoomMessage = {
-  sender: string;
-  type: "state";
-  fen: string;
-};
-
 type CommunityDetail = {
   title: string;
   tag: string;
@@ -125,7 +132,6 @@ type CommunityDetail = {
 };
 
 const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
-const clientId = crypto.randomUUID();
 
 const copy = {
   en: {
@@ -263,6 +269,12 @@ const defaultProfile: Profile = {
   rating: null,
   pro: false,
   email: "",
+  avatar: "",
+  notifications: {
+    gameInvitations: true,
+    gameResults: true,
+    coachTips: false,
+  },
   signedIn: false,
 };
 
@@ -803,6 +815,35 @@ function getMoveQuality(move: Move | null) {
   return "Quiet move";
 }
 
+function getMoveFeedback(move: Move, mode: CoachMode) {
+  if (move.san.includes("#")) {
+    return "You found checkmate. Save this pattern and remember how the attack finished.";
+  }
+  if (move.captured) {
+    return coachCopyByMode(
+      mode,
+      "You won material. Now check what your opponent threatens back.",
+      "You gained material. Before the next move, make sure the piece you used is still safe.",
+      "You won material. Confirm the tactical sequence is actually over and there is no counterplay.",
+    );
+  }
+  if (move.san.includes("+")) {
+    return coachCopyByMode(
+      mode,
+      "Check can be useful, but only if it improves your position.",
+      "You gave check. Compare it with other forcing moves before assuming it is best.",
+      "The checking move seized initiative. Make sure the follow-up keeps the pressure concrete.",
+    );
+  }
+
+  return coachCopyByMode(
+    mode,
+    "Quiet moves are fine when they improve safety or development.",
+    "That was a quiet move. Ask whether it improved development, center control, or king safety.",
+    "The move was positional. Evaluate whether it improved your coordination enough to justify the tempo.",
+  );
+}
+
 function getBotAvatar(level: AiLevel) {
   if (level === "easy") return "E";
   if (level === "medium") return "M";
@@ -959,25 +1000,66 @@ function getResult(game: Chess) {
   return "In progress";
 }
 
-function analyzeGame(history: Move[], game: Chess): CoachInsight[] {
+function coachCopyByMode(mode: CoachMode, beginner: string, intermediate: string, advanced: string) {
+  if (mode === "beginner") return beginner;
+  if (mode === "intermediate") return intermediate;
+  return advanced;
+}
+
+function formatEvaluation(analysis: StockfishAnalysis | null) {
+  if (!analysis) return "N/A";
+  if (analysis.mate !== null) return `Mate ${analysis.mate > 0 ? "for the side to move" : "against the side to move"}`;
+  if (analysis.scoreCp === null) return "N/A";
+  const pawns = analysis.scoreCp / 100;
+  return `${pawns > 0 ? "+" : ""}${pawns.toFixed(2)}`;
+}
+
+function analyzeGame(history: Move[], game: Chess, analysis: StockfishAnalysis | null, coachMode: CoachMode): CoachInsight[] {
   const whiteCaptures = history.filter((move) => move.color === "w" && move.captured);
   const blackCaptures = history.filter((move) => move.color === "b" && move.captured);
   const checks = history.filter((move) => move.san.includes("+") || move.san.includes("#"));
   const queenEarly = history.slice(0, 8).some((move) => move.color === "w" && move.piece === "q");
   const castle = history.some((move) => move.color === "w" && (move.san === "O-O" || move.san === "O-O-O"));
+  const centerControl = history.slice(0, 8).some((move) => move.color === "w" && /^(e4|d4|c4|Nf3)/.test(move.san));
+  const undevelopedMinors = ["b1", "g1", "c1", "f1"].filter((square) => game.get(square as Square)?.color === "w").length;
+  const bestMove = analysis?.bestMove ? playUciMove(new Chess(game.fen()), analysis.bestMove) : findBestMove(game);
   const insights: CoachInsight[] = [];
+
+  if (bestMove) {
+    insights.push({
+      tone: typeof analysis?.scoreCp === "number" && analysis.scoreCp < -120 ? "warning" : "pro",
+      title: "Best move suggestion",
+      text: coachCopyByMode(
+        coachMode,
+        `A safer move here was ${bestMove.san}. ${analysis ? `Evaluation ${formatEvaluation(analysis)}.` : ""} Check forcing moves before you commit.`,
+        `Stockfish prefers ${bestMove.san}. ${analysis ? `Evaluation ${formatEvaluation(analysis)}.` : ""} Compare that line against your candidate and ask what tactical detail it fixes.`,
+        `Engine choice: ${bestMove.san}. ${analysis ? `Evaluation ${formatEvaluation(analysis)}.` : ""} Use it as a reference for move-order, king safety, and tactical accuracy.`,
+      ),
+    });
+  }
 
   if (whiteCaptures.length >= blackCaptures.length) {
     insights.push({
       tone: "good",
       title: "Material discipline",
-      text: `You kept the material balance healthy with ${whiteCaptures.length} capture opportunities converted.`,
+      text: coachCopyByMode(
+        coachMode,
+        `You kept material under control and converted ${whiteCaptures.length} capture chances.`,
+        `You handled material well and converted ${whiteCaptures.length} capture opportunities without falling behind.`,
+        `Material management was stable. You converted ${whiteCaptures.length} captures and avoided an immediate deficit.`,
+      ),
     });
   } else {
+    const lostBy = blackCaptures.length - whiteCaptures.length;
     insights.push({
       tone: "warning",
       title: "Loose pieces",
-      text: "The AI won more material. Before every move, scan which pieces are undefended.",
+      text: coachCopyByMode(
+        coachMode,
+        `You lost material because a piece was left vulnerable. Before every move, ask what is undefended.`,
+        `You fell behind by roughly ${lostBy} capture swing. Check which of your pieces can be taken after your move.`,
+        `Material slipped because your move left tactical targets. Audit loose pieces and backward defenders before committing.`,
+      ),
     });
   }
 
@@ -986,27 +1068,83 @@ function analyzeGame(history: Move[], game: Chess): CoachInsight[] {
     title: "Initiative",
     text:
       checks.length > 1
-        ? `You created ${checks.length} forcing check moments. Keep converting initiative into concrete threats.`
-        : "You played quietly. Add candidate moves that create checks, captures, or threats.",
+        ? coachCopyByMode(
+            coachMode,
+            `You created ${checks.length} forcing moments. Keep looking for checks and direct threats.`,
+            `You generated ${checks.length} forcing checks. Turn that initiative into concrete gains, not just activity.`,
+            `You created ${checks.length} forcing moves. The next step is converting initiative into material, king pressure, or favorable structure.`,
+          )
+        : coachCopyByMode(
+            coachMode,
+            "You played quietly. Before moving, look for checks, captures, and threats.",
+            "The position needed more forcing candidates. Scan checks, captures, and tactical ideas before quiet moves.",
+            "Your candidate list was too quiet. Broaden calculation to forcing lines before settling on a positional move.",
+          ),
+  });
+
+  insights.push({
+    tone: centerControl ? "good" : "warning",
+    title: "Center control",
+    text: centerControl
+      ? coachCopyByMode(
+          coachMode,
+          "You challenged the center early. That usually makes the rest of the position easier to play.",
+          "Early center control helped your pieces coordinate. Keep building around that space advantage.",
+          "You respected central control, which improved piece activity and future tactical chances.",
+        )
+      : coachCopyByMode(
+          coachMode,
+          "Control the center earlier with pawns or knights.",
+          "You gave up too much central influence. Use e4, d4, c4, or Nf3 sooner to organize your pieces.",
+          "Central passivity limited your options. Fight for key central squares earlier to improve initiative and development.",
+        ),
   });
 
   if (queenEarly) {
     insights.push({
       tone: "warning",
       title: "Opening habit",
-      text: "Your queen moved early. In most openings, develop minor pieces and secure your king first.",
+      text: coachCopyByMode(
+        coachMode,
+        "Your queen moved too early. Usually it is better to develop knights and bishops first.",
+        "The queen came out early and likely invited tempo-gaining attacks. Develop minor pieces and castle first.",
+        "Early queen activity cost development time. Favor minor-piece mobilization and king safety before queen operations.",
+      ),
     });
   } else if (castle) {
     insights.push({
       tone: "good",
       title: "King safety",
-      text: "You castled and reduced tactical risk. That is the habit of players who improve fast.",
+      text: coachCopyByMode(
+        coachMode,
+        "You castled and made your king safer.",
+        "You found a castling window and reduced tactical risk. Keep building that habit.",
+        "You prioritized king safety correctly, which stabilizes calculation and attacking choices.",
+      ),
     });
   } else {
     insights.push({
       tone: "pro",
       title: "King safety",
-      text: "Look for a castling window earlier. A safe king makes attacking easier.",
+      text: coachCopyByMode(
+        coachMode,
+        "Your king is still unsafe. Try to castle earlier.",
+        "You delayed king safety. Look for a castling window before launching new operations.",
+        "The king remains exposed and that distorts the position. Secure it earlier so your attacking plans are sound.",
+      ),
+    });
+  }
+
+  if (undevelopedMinors >= 2) {
+    insights.push({
+      tone: "warning",
+      title: "Development",
+      text: coachCopyByMode(
+        coachMode,
+        "Several pieces are still sleeping on their starting squares. Develop them before hunting tactics.",
+        "You still have too many undeveloped minor pieces. Activate them to improve coordination and defense.",
+        "Development lag is holding the position back. Untangle the minor pieces before investing in side plans.",
+      ),
     });
   }
 
@@ -1014,7 +1152,20 @@ function analyzeGame(history: Move[], game: Chess): CoachInsight[] {
     insights.unshift({
       tone: game.turn() === "b" ? "good" : "warning",
       title: game.turn() === "b" ? "Finish found" : "Tactical miss",
-      text: game.turn() === "b" ? "You delivered checkmate. Save this game and replay the final pattern." : "You were checkmated. Review the last 5 moves and find the first defensive resource.",
+      text:
+        game.turn() === "b"
+          ? coachCopyByMode(
+              coachMode,
+              "You delivered checkmate. Save the game and remember the final pattern.",
+              "You found checkmate. Save the game and review how the attack was prepared.",
+              "You converted the attack cleanly into mate. Revisit the move order that made the final tactic possible.",
+            )
+          : coachCopyByMode(
+              coachMode,
+              "You were checkmated. Go back a few moves and look for the first danger sign.",
+              "You were checkmated. Review the last five moves and identify the first defensive resource you missed.",
+              "The game ended in mate against you. Trace the sequence back to the first structural or tactical concession.",
+            ),
     });
   }
 
@@ -1048,6 +1199,18 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isStrongPassword(password: string) {
+  return password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
+}
+
+function fieldError(errors: AuthFieldErrors, field: keyof AuthFormState) {
+  return errors[field];
+}
+
 function fenPreview(fen: string) {
   const placement = fen.split(" ")[0];
   const map: Record<string, string> = {
@@ -1070,25 +1233,56 @@ function fenPreview(fen: string) {
     .flatMap((char) => (Number.isNaN(Number(char)) ? map[char] : Array.from({ length: Number(char) }, () => "")));
 }
 
+function getRoomIdFromLocation() {
+  const match = window.location.pathname.match(/^\/play\/room\/([A-Za-z0-9_-]+)$/i);
+  if (match?.[1]) {
+    return match[1].toUpperCase();
+  }
+
+  return new URLSearchParams(window.location.search).get("room") || "";
+}
+
+function roomPath(roomId: string) {
+  return `/play/room/${roomId.toUpperCase()}`;
+}
+
+function mapUserToProfile(user: ApiUser): Profile {
+  return {
+    id: user.id,
+    name: user.name,
+    city: user.city,
+    rating: user.rating,
+    pro: user.pro,
+    email: user.email,
+    avatar: user.avatar,
+    notifications: user.notifications,
+    signedIn: true,
+  };
+}
+
 export default function App() {
+  const initialRoomId = getRoomIdFromLocation();
   const [game, setGame] = useState(() => new Chess());
   const [selected, setSelected] = useState<Square | null>(null);
   const [legalTargets, setLegalTargets] = useState<Square[]>([]);
   const [history, setHistory] = useState<Move[]>([]);
   const [theme, setTheme] = useState<ThemeName>(() => normalizeTheme(loadJson("cm-theme", "midnight")));
   const [language, setLanguage] = useState<Language>(() => loadJson("cm-language", "en"));
-  const [view, setView] = useState<View>("home");
-  const [mode, setMode] = useState<GameMode>("ai");
+  const [view, setView] = useState<View>(initialRoomId ? "play" : "home");
+  const [mode, setMode] = useState<GameMode>(initialRoomId ? "friend" : "ai");
   const [aiLevel, setAiLevel] = useState<AiLevel>(() => loadJson("cm-ai-level", "medium"));
-  const [profile, setProfile] = useState<Profile>(() => loadJson("cm-profile", defaultProfile));
-  const [accounts, setAccounts] = useState<Account[]>(() => loadJson("cm-accounts", []));
-  const [cloudUserId, setCloudUserId] = useState("");
+  const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [savedGames, setSavedGames] = useState<SavedGame[]>(() => loadJson("cm-games", []));
-  const [roomId, setRoomId] = useState(() => new URLSearchParams(location.search).get("room") || "");
+  const [roomId, setRoomId] = useState(initialRoomId);
   const [toast, setToast] = useState("Take the Elo quiz first. Chess Master will not invent your level.");
-  const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", city: "Almaty" });
+  const [authForm, setAuthForm] = useState<AuthFormState>({ name: "", email: "", password: "", confirmPassword: "", city: "Almaty" });
+  const [authErrors, setAuthErrors] = useState<AuthFieldErrors>({});
+  const [authNotice, setAuthNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [authPending, setAuthPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
   const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
@@ -1102,21 +1296,26 @@ export default function App() {
   const [puzzleTargets, setPuzzleTargets] = useState<Square[]>([]);
   const [puzzleSolved, setPuzzleSolved] = useState<Record<string, boolean>>(() => loadJson("cm-puzzle-solved", {}));
   const [puzzleMessage, setPuzzleMessage] = useState(puzzles[0].goal);
-  const [joinedRoom, setJoinedRoom] = useState("");
   const [communityDetail, setCommunityDetail] = useState<CommunityDetail | null>(null);
+  const [coachMode, setCoachMode] = useState<CoachMode>("beginner");
   const [stockfishBusy, setStockfishBusy] = useState(false);
   const [stockfishAnalysis, setStockfishAnalysis] = useState<StockfishAnalysis | null>(null);
-  const [cloudRoomLive, setCloudRoomLive] = useState(false);
+  const [friendColor, setFriendColor] = useState<"white" | "black" | null>(null);
+  const [roomState, setRoomState] = useState<RoomState | null>(null);
+  const [roomBusy, setRoomBusy] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const lastSavedFen = useRef("");
-  const roomChannel = useRef<BroadcastChannel | null>(null);
+  const authPanelRef = useRef<HTMLDivElement | null>(null);
 
   const board = useMemo(() => createBoard(game), [game]);
   const capturedPieces = useMemo(() => getCapturedPieces(history), [history]);
   const whiteCaptured = capturedPieces.filter((piece) => piece.startsWith("w"));
   const blackCaptured = capturedPieces.filter((piece) => piece.startsWith("b"));
-  const coachReport = useMemo(() => analyzeGame(history, game), [history, game]);
+  const coachReport = useMemo(() => analyzeGame(history, game, stockfishAnalysis, coachMode), [history, game, stockfishAnalysis, coachMode]);
   const reviewScore = useMemo(() => estimateReviewScore(history, game), [history, game]);
-  const roomUrl = roomId ? `${location.origin}${location.pathname}?room=${roomId}` : "";
+  const roomUrl = roomId ? `${window.location.origin}${roomPath(roomId)}` : "";
   const puzzleBoard = useMemo(() => makePuzzleBoard(puzzleGame), [puzzleGame]);
   const selectedPuzzle = puzzleSet[selectedPuzzleIndex] ?? puzzleSet[0];
   const dynamicCoachTimeline = useMemo(() => getCoachTimeline(history, game), [history, game]);
@@ -1228,10 +1427,6 @@ export default function App() {
   }, [profile]);
 
   useEffect(() => {
-    localStorage.setItem("cm-accounts", JSON.stringify(accounts));
-  }, [accounts]);
-
-  useEffect(() => {
     localStorage.setItem("cm-games", JSON.stringify(savedGames));
   }, [savedGames]);
 
@@ -1260,64 +1455,114 @@ export default function App() {
   }, [puzzleSet]);
 
   useEffect(() => {
-    if (!cloud.enabled) return;
-    return observeCloudUser(async (user) => {
-      if (!user) {
-        setCloudUserId("");
-        return;
-      }
+    let cancelled = false;
 
-      setCloudUserId(user.uid);
-      const cloudProfile = await loadCloudProfile(user.uid);
-      if (cloudProfile) {
-        setProfile({
-          ...cloudProfile,
-          signedIn: true,
-        });
+    async function bootstrapApp() {
+      try {
+        const sessionUser = await getSession();
+        if (cancelled) return;
+
+        if (sessionUser) {
+          setProfile(mapUserToProfile(sessionUser));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setToast(error instanceof Error ? error.message : "Failed to load application session.");
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionChecked(true);
+        }
       }
-    });
+    }
+
+    void bootstrapApp();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!cloudUserId) return;
-    saveCloudProfile(cloudUserId, {
-      name: profile.name,
-      city: profile.city,
-      rating: profile.rating,
-      pro: profile.pro,
-      email: profile.email,
-    }).catch(() => setToast("Cloud profile save failed. Local fallback is still active."));
-  }, [cloudUserId, profile.name, profile.city, profile.rating, profile.pro, profile.email]);
+    if (!profile.signedIn) return;
+
+    setHistoryLoading(true);
+    getHistory()
+      .then((items) => {
+        const mapped = items.map((item) => ({
+          id: String(item.id),
+          date: String(item.finishedAt || item.createdAt || new Date().toISOString()),
+          mode: item.mode === "friend" ? "friend" : "ai",
+          result: String(item.result || "*"),
+          moves: typeof item.pgn === "string" ? item.pgn.split(" ").filter(Boolean) : [],
+          pgn: String(item.pgn || ""),
+          coach: [],
+          city: profile.city,
+          reviewScore: null,
+        })) as SavedGame[];
+        setSavedGames(mapped);
+      })
+      .catch((error) => setToast(error instanceof Error ? error.message : "Failed to load history."))
+      .finally(() => setHistoryLoading(false));
+  }, [profile.signedIn, profile.city]);
 
   useEffect(() => {
-    if (!roomId) return;
-    roomChannel.current?.close();
-    const channel = new BroadcastChannel(`chess-master-${roomId}`);
-    roomChannel.current = channel;
-    channel.onmessage = (event: MessageEvent<RoomMessage>) => {
-      if (event.data.sender === clientId || event.data.type !== "state") return;
-      const nextGame = new Chess(event.data.fen);
-      syncGame(nextGame);
-      setToast("Friend move received through the live room.");
+    const handlePopState = () => {
+      const nextRoomId = getRoomIdFromLocation();
+      if (!nextRoomId) return;
+      setRoomId(nextRoomId);
+      setView("play");
+      setMode("friend");
     };
 
-    return () => channel.close();
-  }, [roomId]);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
-    if (!roomId || !cloud.enabled) {
-      setCloudRoomLive(false);
-      return;
+    if (!profile.signedIn || !roomId) return;
+
+    const socket = getSocket();
+
+    const handleRoomState = (nextState: RoomState) => {
+      setRoomState(nextState);
+      syncGame(new Chess(nextState.fen));
+    };
+
+    const handleConnectError = () => {
+      setToast("Live room connection failed.");
+    };
+
+    socket.on("room:state", handleRoomState);
+    socket.on("connect_error", handleConnectError);
+
+    if (!socket.connected) {
+      socket.connect();
     }
 
-    setCloudRoomLive(true);
-    return watchCloudRoom(roomId, (data) => {
-      if (!data || data.sender === clientId || typeof data.fen !== "string") return;
-      const nextGame = new Chess(data.fen);
-      syncGame(nextGame);
-      setToast("Cloud room move received. This link works across browsers after deployment.");
-    });
-  }, [roomId]);
+    socket.emit(
+      "room:join",
+      { roomId },
+      (response: { ok: boolean; error?: string; color?: "white" | "black"; state?: RoomState }) => {
+        if (!response?.ok || !response.state) {
+          setToast(response?.error || "Unable to join room.");
+          return;
+        }
+
+        setFriendColor(response.color || null);
+        setMode("friend");
+        setView("play");
+        setRoomState(response.state);
+        syncGame(new Chess(response.state.fen));
+        setToast(response.state.waitingForOpponent ? "Room created. Waiting for opponent." : "Friend room connected.");
+      },
+    );
+
+    return () => {
+      socket.off("room:state", handleRoomState);
+      socket.off("connect_error", handleConnectError);
+    };
+  }, [profile.signedIn, roomId]);
 
   useEffect(() => {
     if (!game.isGameOver() || lastSavedFen.current === game.fen()) return;
@@ -1328,20 +1573,6 @@ export default function App() {
   function syncGame(nextGame: Chess) {
     setGame(new Chess(nextGame.fen()));
     setHistory(nextGame.history({ verbose: true }));
-  }
-
-  function broadcastGame(nextGame: Chess) {
-    if (!roomId || mode !== "friend") return;
-    roomChannel.current?.postMessage({ sender: clientId, type: "state", fen: nextGame.fen() } satisfies RoomMessage);
-    updateCloudRoom(roomId, {
-      sender: clientId,
-      fen: nextGame.fen(),
-      pgn: nextGame.pgn(),
-      players: {
-        lastMover: profile.name,
-        city: profile.city,
-      },
-    }).catch(() => setToast("Local room synced. Add Firebase keys to sync across public browsers."));
   }
 
   function makeAiMove(nextGame: Chess) {
@@ -1371,10 +1602,21 @@ export default function App() {
   function handleSquareClick(square: Square) {
     if (game.isGameOver()) return;
     if (mode === "ai" && game.turn() !== "w") return;
+    if (mode === "friend") {
+      if (!friendColor) {
+        setToast("Join the room first.");
+        return;
+      }
+      if ((friendColor === "white" && game.turn() !== "w") || (friendColor === "black" && game.turn() !== "b")) {
+        setToast("Wait for your turn.");
+        return;
+      }
+    }
 
     const piece = game.get(square);
+    const friendlyColor = mode === "friend" ? (friendColor === "white" ? "w" : "b") : "w";
     if (!selected) {
-      if (piece && (mode === "friend" || piece.color === "w")) {
+      if (piece && piece.color === friendlyColor) {
         setSelected(square);
         setLegalTargets(game.moves({ square, verbose: true }).map((move) => move.to));
       }
@@ -1388,28 +1630,62 @@ export default function App() {
     setLegalTargets([]);
 
     if (!move) {
-      if (piece && (mode === "friend" || piece.color === "w")) {
+      if (piece && piece.color === friendlyColor) {
         setSelected(square);
         setLegalTargets(game.moves({ square, verbose: true }).map((target) => target.to));
       }
       return;
     }
 
+    if (mode === "friend") {
+      const socket = getSocket();
+      socket.emit(
+        "room:move",
+        {
+          roomId,
+          from: move.from,
+          to: move.to,
+          promotion: "q",
+        },
+        (response: { ok: boolean; error?: string; state?: RoomState }) => {
+          if (!response?.ok) {
+            setToast(response?.error || "Move rejected.");
+            return;
+          }
+
+          if (response.state) {
+            setRoomState(response.state);
+            syncGame(new Chess(response.state.fen));
+          }
+        },
+      );
+      return;
+    }
+
     syncGame(nextGame);
-    broadcastGame(nextGame);
-    setToast(move.captured ? `${move.san}: material won. Great tactical signal.` : `${move.san}: now check the opponent's threat.`);
-    if (mode === "ai") makeAiMove(nextGame);
+    setToast(`${move.san}: ${getMoveFeedback(move, coachMode)}`);
+    makeAiMove(nextGame);
   }
 
   function resetGame(nextMode = mode) {
+    if (nextMode === "friend") {
+      void createRoom();
+      return;
+    }
+
     const nextGame = new Chess();
     lastSavedFen.current = "";
     setMode(nextMode);
+    setRoomId("");
+    setRoomState(null);
+    setFriendColor(null);
     setSelected(null);
     setLegalTargets([]);
+    if (window.location.pathname.startsWith("/play/room/")) {
+      window.history.replaceState(null, "", "/");
+    }
     setToast(nextMode === "ai" ? `New game vs ${getAiLabel(aiLevel)} started.` : "Friend room board reset.");
     syncGame(nextGame);
-    if (nextMode === "friend") broadcastGame(nextGame);
   }
 
   function saveGame(source: "auto" | "manual") {
@@ -1426,26 +1702,35 @@ export default function App() {
       reviewScore,
     };
     setSavedGames((current) => [saved, ...current].slice(0, 20));
+    if (profile.signedIn && mode !== "friend") {
+      void saveHistory({
+        mode,
+        result: saved.result,
+        status: game.isGameOver() ? getStatus(game) : "saved",
+        pgn: saved.pgn,
+        fen: game.fen(),
+        summary: `${getReviewLabel(reviewScore)} review saved from the ${mode} board.`,
+      }).catch(() => undefined);
+    }
     if (source === "manual") setToast("Game saved to your local history.");
   }
 
-  function createRoom() {
-    const nextRoom = Math.random().toString(36).slice(2, 8).toUpperCase();
-    setRoomId(nextRoom);
-    setMode("friend");
-    window.history.replaceState(null, "", `?room=${nextRoom}`);
-    upsertCloudRoom(nextRoom, {
-      sender: clientId,
-      fen: game.fen(),
-      pgn: game.pgn(),
-      host: profile.name,
-      city: profile.city,
-    }).catch(() => undefined);
-    setToast(
-      cloud.enabled
-        ? "Cloud room created. Deploy the app and this link works across browsers."
-        : "Local room created. Add Firebase env keys and deploy for public friend links.",
-    );
+  async function createRoom() {
+    try {
+      setRoomBusy(true);
+      const room = await createFriendRoom();
+      setRoomId(room.roomId);
+      setMode("friend");
+      setFriendColor("white");
+      setRoomState(room.state);
+      window.history.replaceState(null, "", roomPath(room.roomId));
+      syncGame(new Chess(room.state.fen));
+      setToast("Friend room created. Share the link and wait for black to join.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Failed to create room.");
+    } finally {
+      setRoomBusy(false);
+    }
   }
 
   async function copyRoomLink() {
@@ -1454,94 +1739,138 @@ export default function App() {
     setToast("Room link copied.");
   }
 
+  async function sendInviteEmail() {
+    if (!roomId || !inviteEmail.trim()) {
+      setToast("Add an email address for the invitation.");
+      return;
+    }
+
+    try {
+      setInviteBusy(true);
+      await sendRoomInvite(roomId, inviteEmail.trim().toLowerCase());
+      setInviteEmail("");
+      setToast("Invitation email sent.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Invitation email failed.");
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
   function upgradeToPro() {
     if (openProCheckout()) {
       setToast("Opening Stripe payment link.");
       return;
     }
     setProfile((current) => ({ ...current, pro: true }));
+    if (profile.signedIn) {
+      void patchProfile({ pro: true }).catch(() => undefined);
+    }
     setToast("Pro unlocked locally. Add VITE_STRIPE_PAYMENT_LINK to use a real Stripe checkout.");
   }
 
   function openAuth(modeName: "login" | "signup") {
     setAuthMode(modeName);
-    setAuthOpen(true);
+    setAuthErrors({});
+    setAuthNotice(null);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     setAuthForm({
       name: profile.name === "Guest Player" ? "" : profile.name,
       email: profile.email,
       password: "",
+      confirmPassword: "",
       city: profile.city,
+    });
+    requestAnimationFrame(() => {
+      authPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   }
 
-  function submitAuth(event: FormEvent<HTMLFormElement>) {
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const email = authForm.email.trim().toLowerCase();
-    const existing = accounts.find((account) => account.email === email);
+    const password = authForm.password.trim();
+    const name = authForm.name.trim();
+    const city = authForm.city.trim() || "Almaty";
+    const nextErrors: AuthFieldErrors = {};
+
+    setAuthErrors({});
+    setAuthNotice(null);
+
+    if (!isValidEmail(email)) {
+      nextErrors.email = "Enter a real email address.";
+    }
 
     if (authMode === "signup") {
-      if (existing) {
-        setToast("This email is already registered. Use Log in instead.");
-        return;
+      if (!name) {
+        nextErrors.name = "Add your name before creating an account.";
       }
-      const displayName = authForm.name.trim() || email.split("@")[0] || "Chess Master Player";
-      const account: Account = {
-        name: displayName,
-        email,
-        password: authForm.password,
-        city: authForm.city || "Almaty",
-        rating: profile.rating,
-        pro: profile.pro,
-      };
-      if (cloud.enabled) {
-        signUpCloud(email, authForm.password, displayName, {
-          name: displayName,
-          city: account.city,
-          rating: account.rating,
-          pro: account.pro,
-          email,
-        })
-          .then((user) => {
-            setCloudUserId(user.uid);
-            setProfile({ ...account, signedIn: true });
-            setToast(`Cloud account created for ${displayName}.`);
-            setAuthOpen(false);
-          })
-          .catch((error: Error) => setToast(error.message));
-        return;
+      if (!isStrongPassword(password)) {
+        nextErrors.password = "Use at least 8 characters with letters and numbers.";
       }
-      setAccounts((current) => [...current, account]);
-      setProfile({ ...account, signedIn: true });
-      setToast(`Local account created for ${displayName}. Add Firebase keys for public auth.`);
+      if (password !== authForm.confirmPassword.trim()) {
+        nextErrors.confirmPassword = "Passwords do not match.";
+      }
     } else {
-      if (cloud.enabled) {
-        loginCloud(email, authForm.password)
-          .then((credential) => {
-            setCloudUserId(credential.user.uid);
-            setToast(`Welcome back, ${credential.user.displayName || email}.`);
-            setAuthOpen(false);
-          })
-          .catch((error: Error) => setToast(error.message));
-        return;
+      if (!password) {
+        nextErrors.password = "Enter your password to log in.";
       }
-      if (!existing || existing.password !== authForm.password) {
-        setToast("Wrong email or password. This prototype now checks saved accounts.");
-        return;
-      }
-      setProfile({ ...existing, signedIn: true });
-      setToast(`Welcome back, ${existing.name}.`);
     }
 
-    setAuthOpen(false);
+    if (!city) {
+      nextErrors.city = "Add your city.";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setAuthErrors(nextErrors);
+      setAuthNotice({
+        tone: "error",
+        text: authMode === "signup" ? "Please fix the highlighted fields before creating your account." : "Please fix the highlighted fields before logging in.",
+      });
+      return;
+    }
+
+    setAuthPending(true);
+
+    try {
+      const user =
+        authMode === "signup"
+          ? await registerUser({ name, email, password, city })
+          : await loginUser({ email, password });
+      setProfile(mapUserToProfile(user));
+      setView(roomId ? "play" : "home");
+      setAuthErrors({});
+      setAuthNotice({
+        tone: "success",
+        text: authMode === "signup" ? "Account created successfully. Opening your dashboard." : "Signed in successfully. Opening your dashboard.",
+      });
+      setToast(authMode === "signup" ? `Account created for ${user.name}.` : `Welcome back, ${user.name}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Authentication failed.";
+      setAuthErrors({ form: message });
+      setAuthNotice({ tone: "error", text: message });
+      setToast(message);
+    } finally {
+      setAuthPending(false);
+    }
   }
 
-  function signOut() {
-    if (cloud.enabled) {
-      logoutCloud().catch(() => setToast("Cloud sign out failed."));
+  async function signOut() {
+    try {
+      await logoutUser();
+    } catch {
+      setToast("Sign out failed.");
+      return;
     }
-    setCloudUserId("");
+
+    setView("home");
+    setRoomId("");
+    setRoomState(null);
+    setFriendColor(null);
     setProfile({ ...defaultProfile, city: profile.city, rating: profile.rating });
-    setToast("Signed out. Log in again with a registered email and password.");
+    window.history.replaceState(null, "", "/");
+    setToast("Signed out. Log in again to continue.");
   }
 
   function finishQuiz() {
@@ -1552,9 +1881,7 @@ export default function App() {
     const rating = estimateQuizElo(quizAnswers);
     setProfile((current) => ({ ...current, rating }));
     if (profile.signedIn) {
-      setAccounts((current) =>
-        current.map((account) => (account.email === profile.email ? { ...account, rating } : account)),
-      );
+      void patchProfile({ rating }).catch(() => undefined);
     }
     setQuizOpen(false);
     setToast(`Your estimated starting Elo is ${rating}. This comes from your quiz answers, not a random number.`);
@@ -1670,6 +1997,14 @@ export default function App() {
         : analysis.scoreCp !== null
           ? `${(analysis.scoreCp / 100).toFixed(2)} pawns`
           : "no score";
+
+    if (profile.signedIn && profile.notifications.coachTips && best) {
+      void sendCoachTipEmail({
+        tip: `Coach mode ${coachMode}: consider ${best.san}. Improve king safety, development, and center control before your next move.`,
+        evaluation: scoreText,
+      }).catch(() => undefined);
+    }
+
     setToast(
       best
         ? `Stockfish recommends ${best.san} (${scoreText}).`
@@ -1679,24 +2014,41 @@ export default function App() {
 
   function joinCommunityRoom(label: string) {
     const code = makeRoomCode(label);
-    setJoinedRoom(label);
     setRoomId(code);
     setMode("friend");
-    window.history.replaceState(null, "", `?room=${code}`);
-    upsertCloudRoom(code, {
-      sender: clientId,
-      fen: game.fen(),
-      pgn: game.pgn(),
-      host: profile.name,
-      label,
-      city: profile.city,
-    }).catch(() => undefined);
+    setView("play");
+    window.history.replaceState(null, "", roomPath(code));
     setToast(getRoomToast(label, code));
   }
 
   function selectCity(city: string) {
     setProfile((current) => ({ ...current, city }));
+    if (profile.signedIn) {
+      void patchProfile({ city }).catch(() => undefined);
+    }
     setToast(makeCityUpdate(city));
+  }
+
+  async function persistProfileSettings() {
+    if (!profile.signedIn) return;
+
+    try {
+      setAuthPending(true);
+      const user = await patchProfile({
+        name: profile.name,
+        city: profile.city,
+        avatar: profile.avatar,
+        rating: profile.rating,
+        pro: profile.pro,
+        notifications: profile.notifications,
+      });
+      setProfile(mapUserToProfile(user));
+      setToast("Profile settings saved.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Failed to save profile settings.");
+    } finally {
+      setAuthPending(false);
+    }
   }
 
   function cycleTheme() {
@@ -1711,28 +2063,28 @@ export default function App() {
     setToast(copy[language].settingsSaved);
   }
 
-function updateLanguage(next: Language) {
+  function updateLanguage(next: Language) {
   setLanguage(next);
   setToast(copy[next].settingsSaved);
-}
-
-function followLegend(name: string) {
-  if (name.includes("Magnus")) {
-    setView("learn");
-    setToast("Magnus mindset selected: train calculation and practical decision-making.");
-  } else if (name.includes("Judit")) {
-    setView("puzzles");
-    setToast("Judit mindset selected: sharpen tactics and attacking intuition.");
-  } else {
-    setView("coach");
-    setToast("Kasparov mindset selected: analyze preparation and improve the next game.");
   }
-}
 
-function openExternal(url: string, label: string) {
-  window.open(url, "_blank", "noopener,noreferrer");
-  setToast(`${label} opened in a new tab.`);
-}
+  function followLegend(name: string) {
+    if (name.includes("Magnus")) {
+      setView("learn");
+      setToast("Magnus mindset selected: train calculation and practical decision-making.");
+    } else if (name.includes("Judit")) {
+      setView("puzzles");
+      setToast("Judit mindset selected: sharpen tactics and attacking intuition.");
+    } else {
+      setView("coach");
+      setToast("Kasparov mindset selected: analyze preparation and improve the next game.");
+    }
+  }
+
+  function openExternal(url: string, label: string) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    setToast(`${label} opened in a new tab.`);
+  }
 
   function openCommunityDetail(detail: CommunityDetail) {
     setCommunityDetail(detail);
@@ -1755,6 +2107,45 @@ function openExternal(url: string, label: string) {
     { id: "leaderboard", labelKey: "cities", icon: Trophy },
     { id: "pro", labelKey: "pro", icon: Crown },
   ] as const;
+
+  const welcomeBenefits = [
+    "Secure backend account sign-in",
+    "Saved lesson progress and game archive",
+    "Stockfish review with move feedback",
+    "Socket.IO live rooms and city community hubs",
+  ];
+
+  const coachActionPlan = [
+    { title: "Opening reset", text: "Review your first 8 moves and compare them with basic development rules." },
+    { title: "Tactical scan", text: "Before every move, check forcing moves: checks, captures, threats, and hanging pieces." },
+    { title: "Endgame discipline", text: "Convert small advantages by centralizing the king and improving the worst piece." },
+  ];
+
+  const learnExtras = [
+    { title: "Opening study", text: "Pair your current lesson with one external video and one practice game." },
+    { title: "Tactics block", text: "Solve 3 puzzles before queueing a new game to warm up your pattern memory." },
+    { title: "Review block", text: "Save one game and send it to Coach so the next lesson reflects your mistakes." },
+  ];
+
+  const communityExtras = [
+    { title: "Friday rapid", text: "Arena-style city session with fast pairings and post-game review rooms." },
+    { title: "Opening lab", text: "Players share one line, one trap, and one strategic idea from current study." },
+    { title: "Coach office hour", text: "Drop one saved game and compare how different players would handle the critical moment." },
+  ];
+
+  if (!sessionChecked) {
+    return (
+      <main className={`app ${theme}`}>
+        <section className="welcomeGate">
+          <div className="welcomeHero">
+            <span className="eyebrow">Starting Chess Master</span>
+            <h2>Preparing your chess workspace.</h2>
+            <p>Loading authentication, multiplayer, and training services.</p>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className={`app ${theme}`}>
@@ -1781,22 +2172,234 @@ function openExternal(url: string, label: string) {
             </button>
           ) : (
             <>
-              <button className="authButton" onClick={() => openAuth("login")}>
+              <button className="authButton" onClick={() => openAuth("login")} type="button">
                 <LogIn size={18} />
                 Log in
               </button>
-              <button className="signupButton" onClick={() => openAuth("signup")}>
+              <button className="signupButton" onClick={() => openAuth("signup")} type="button">
                 Start free
               </button>
             </>
           )}
-          <button className="proButton" onClick={() => setView("pro")}>
+          <button className="proButton" onClick={() => (profile.signedIn ? setView("pro") : openAuth("signup"))} type="button">
             <Crown size={18} />
             {profile.pro ? "Pro Active" : "Upgrade Pro"}
           </button>
         </div>
       </section>
 
+      {!profile.signedIn ? (
+        <section className="welcomeGate">
+          <div className="welcomeHero">
+            <span className="eyebrow">Welcome to Chess Master</span>
+            <h2>Serious chess training starts after a real sign-in.</h2>
+            <p>
+              Use your email and password to enter your training space. After that, we take you into the full chess platform with saved progress, AI review, puzzles, lessons, and community rooms.
+            </p>
+            <div className="heroActions">
+              <button className="primaryButton" onClick={() => openAuth("signup")} type="button">
+                <LogIn size={18} />
+                Create account
+              </button>
+              <button className="ghostButton" onClick={() => openAuth("login")} type="button">
+                <KeyRound size={16} />
+                Log in
+              </button>
+            </div>
+            <div className="welcomeBenefits">
+              {welcomeBenefits.map((item) => (
+                <article key={item}>
+                  <CheckCircle2 size={18} />
+                  <span>{item}</span>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="welcomeAuthPanel" ref={authPanelRef}>
+            <div className="panelTitle">
+              <Shield size={18} />
+              <h3>Professional authorization</h3>
+            </div>
+            <p className="welcomeAuthLead">
+              Create your account or log in here. This form talks directly to the backend and unlocks the full chess platform only after a real session is created.
+            </p>
+            <div className="authFeatureList">
+              <div>
+                <Database size={16} />
+                <span>Backend user records, history, and notification settings</span>
+              </div>
+              <div>
+                <Shield size={16} />
+                <span>Validated email and stronger password requirements</span>
+              </div>
+              <div>
+                <Users size={16} />
+                <span>Feature pages unlock only after sign-in</span>
+              </div>
+            </div>
+            <div className="authStatusCard">
+              <strong>{authMode === "signup" ? "Create a serious training account" : "Welcome back to your training space"}</strong>
+              <span>
+                {authMode === "signup"
+                  ? "Your account unlocks saved games, puzzle progress, city leaderboards, and friend rooms."
+                  : "Log in to restore your dashboard, history, settings, and multiplayer access."}
+              </span>
+            </div>
+            <div className="authModeSwitch welcomeAuthSwitch">
+              <button
+                type="button"
+                className={authMode === "login" ? "activeAuthMode" : ""}
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthErrors({});
+                  setAuthNotice(null);
+                }}
+              >
+                Log in
+              </button>
+              <button
+                type="button"
+                className={authMode === "signup" ? "activeAuthMode" : ""}
+                onClick={() => {
+                  setAuthMode("signup");
+                  setAuthErrors({});
+                  setAuthNotice(null);
+                }}
+              >
+                Create account
+              </button>
+            </div>
+            <form className="welcomeAuthForm" onSubmit={submitAuth}>
+              {authNotice && (
+                <div className={`authInlineMessage ${authNotice.tone}`} role={authNotice.tone === "error" ? "alert" : "status"}>
+                  <strong>{authNotice.tone === "success" ? "Success" : authNotice.tone === "error" ? "Check this" : "Heads up"}</strong>
+                  <span>{authNotice.text}</span>
+                </div>
+              )}
+              <div className="authProof">
+                <span><CheckCircle2 size={15} /> Saved progress</span>
+                <span><CheckCircle2 size={15} /> Cloud rooms</span>
+                <span><CheckCircle2 size={15} /> Coach history</span>
+              </div>
+              {authMode === "signup" && (
+                <label>
+                  Name
+                  <input
+                    required
+                    value={authForm.name}
+                    aria-invalid={Boolean(fieldError(authErrors, "name"))}
+                    onChange={(event) => {
+                      setAuthForm({ ...authForm, name: event.target.value });
+                      setAuthErrors((current) => ({ ...current, name: undefined, form: undefined }));
+                    }}
+                  />
+                  {fieldError(authErrors, "name") && <small className="fieldError">{fieldError(authErrors, "name")}</small>}
+                </label>
+              )}
+              <label>
+                Email
+                <input
+                  required
+                  type="email"
+                  autoComplete="email"
+                  value={authForm.email}
+                  aria-invalid={Boolean(fieldError(authErrors, "email"))}
+                  onChange={(event) => {
+                    setAuthForm({ ...authForm, email: event.target.value });
+                    setAuthErrors((current) => ({ ...current, email: undefined, form: undefined }));
+                  }}
+                />
+                {fieldError(authErrors, "email") && <small className="fieldError">{fieldError(authErrors, "email")}</small>}
+              </label>
+              <label>
+                Password
+                <span className="passwordField">
+                  <input
+                    required
+                    type={showPassword ? "text" : "password"}
+                    minLength={8}
+                    autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                    value={authForm.password}
+                    aria-invalid={Boolean(fieldError(authErrors, "password"))}
+                    onChange={(event) => {
+                      setAuthForm({ ...authForm, password: event.target.value });
+                      setAuthErrors((current) => ({ ...current, password: undefined, form: undefined }));
+                    }}
+                  />
+                  <button
+                    className="passwordToggle"
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </span>
+                {fieldError(authErrors, "password") && <small className="fieldError">{fieldError(authErrors, "password")}</small>}
+              </label>
+              {authMode === "signup" && (
+                <label>
+                  Confirm password
+                  <span className="passwordField">
+                    <input
+                      required
+                      type={showConfirmPassword ? "text" : "password"}
+                      minLength={8}
+                      autoComplete="new-password"
+                      value={authForm.confirmPassword}
+                      aria-invalid={Boolean(fieldError(authErrors, "confirmPassword"))}
+                      onChange={(event) => {
+                        setAuthForm({ ...authForm, confirmPassword: event.target.value });
+                        setAuthErrors((current) => ({ ...current, confirmPassword: undefined, form: undefined }));
+                      }}
+                    />
+                    <button
+                      className="passwordToggle"
+                      type="button"
+                      onClick={() => setShowConfirmPassword((current) => !current)}
+                      aria-label={showConfirmPassword ? "Hide password confirmation" : "Show password confirmation"}
+                    >
+                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </span>
+                  {fieldError(authErrors, "confirmPassword") && <small className="fieldError">{fieldError(authErrors, "confirmPassword")}</small>}
+                </label>
+              )}
+              <label>
+                City
+                <input
+                  value={authForm.city}
+                  aria-invalid={Boolean(fieldError(authErrors, "city"))}
+                  onChange={(event) => {
+                    setAuthForm({ ...authForm, city: event.target.value });
+                    setAuthErrors((current) => ({ ...current, city: undefined, form: undefined }));
+                  }}
+                />
+                {fieldError(authErrors, "city") && <small className="fieldError">{fieldError(authErrors, "city")}</small>}
+              </label>
+              {authErrors.form && <div className="formErrorText" role="alert">{authErrors.form}</div>}
+              <div className="authStack authActions">
+                <button className="primaryButton" type="submit" disabled={authPending}>
+                  {authPending ? "Please wait..." : authMode === "login" ? "Log in" : "Create account"}
+                </button>
+                <button
+                  className="textButton"
+                  type="button"
+                  onClick={() => {
+                    setAuthMode(authMode === "login" ? "signup" : "login");
+                    setAuthErrors({});
+                    setAuthNotice(null);
+                  }}
+                  disabled={authPending}
+                >
+                  {authMode === "login" ? "Need an account? Create one" : "Already have an account? Log in"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+      ) : (
       <section className={`productShell ${mobileNavOpen ? "navOpen" : ""}`}>
         <aside className="navPanel">
           <div className="profileCard">
@@ -1974,17 +2577,21 @@ function openExternal(url: string, label: string) {
               <section className="boardStage">
                 <div className="gameHeader">
                   <div>
-                    <span className="eyebrow">{mode === "ai" ? "Human vs AI" : `Friend room ${roomId || "not created"}`}</span>
-                    <h2>{getStatus(game)}</h2>
+                    <span className="eyebrow">
+                      {mode === "ai"
+                        ? "Human vs AI"
+                        : `Play with friend · Room ${roomId || "not created"}${friendColor ? ` · ${friendColor}` : ""}`}
+                    </span>
+                    <h2>{mode === "friend" ? roomState?.status || "Waiting for room sync" : getStatus(game)}</h2>
                   </div>
                   <div className="headerActions">
                     <button className="ghostButton" onClick={() => saveGame("manual")}>
                       <Save size={16} />
                       Save
                     </button>
-                    <button className="ghostButton" onClick={() => resetGame()}>
+                    <button className="ghostButton" onClick={() => resetGame()} disabled={roomBusy}>
                       <RefreshCcw size={16} />
-                      New
+                      {mode === "friend" ? "New room" : "New"}
                     </button>
                   </div>
                 </div>
@@ -2037,9 +2644,9 @@ function openExternal(url: string, label: string) {
                     <Brain size={17} />
                     AI
                   </button>
-                  <button className={mode === "friend" ? "selectedMode" : ""} onClick={() => (roomId ? resetGame("friend") : createRoom())}>
+                  <button className={mode === "friend" ? "selectedMode" : ""} onClick={() => void createRoom()} disabled={roomBusy}>
                     <Users size={17} />
-                    Friend
+                    {roomBusy ? "Creating..." : "Play with Friend"}
                   </button>
                 </div>
 
@@ -2078,6 +2685,13 @@ function openExternal(url: string, label: string) {
                     <Users size={19} />
                     <h3>Play by link</h3>
                   </div>
+                  {mode === "friend" && (
+                    <p>
+                      {roomState?.waitingForOpponent
+                        ? "White is seated. Waiting for black to join by room link."
+                        : `Turn: ${roomState?.turn || "white"} · Status: ${roomState?.status || "syncing"}`}
+                    </p>
+                  )}
                   {roomId ? (
                     <>
                       <code>{roomUrl}</code>
@@ -2085,11 +2699,19 @@ function openExternal(url: string, label: string) {
                         <Copy size={16} />
                         {getRoomActionLabel(roomId)}
                       </button>
+                      <label>
+                        Invite by email
+                        <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="friend@example.com" />
+                      </label>
+                      <button className="ghostButton wideButton" onClick={sendInviteEmail} disabled={inviteBusy}>
+                        <Sparkles size={16} />
+                        {inviteBusy ? "Sending invite..." : "Send invite email"}
+                      </button>
                     </>
                   ) : (
-                    <button className="wideButton" onClick={createRoom}>
+                    <button className="wideButton" onClick={() => void createRoom()} disabled={roomBusy}>
                       <Zap size={16} />
-                      Create live room
+                      {roomBusy ? "Creating room..." : "Create live room"}
                     </button>
                   )}
                 </div>
@@ -2246,6 +2868,18 @@ function openExternal(url: string, label: string) {
                   </article>
                 ))}
               </div>
+              <div className="utilityGrid">
+                {learnExtras.map((item) => (
+                  <article className="utilityCard" key={item.title}>
+                    <BookOpen size={20} />
+                    <h3>{item.title}</h3>
+                    <p>{item.text}</p>
+                    <button className="ghostButton" onClick={() => setView(item.title.includes("Tactics") ? "puzzles" : item.title.includes("Review") ? "coach" : "play")}>
+                      Open focus
+                    </button>
+                  </article>
+                ))}
+              </div>
             </section>
           )}
 
@@ -2277,6 +2911,20 @@ function openExternal(url: string, label: string) {
                       }`
                     : "Click Analyze with Stockfish to calculate the current position."}
                 </span>
+                <div className="coachModes">
+                  {(["beginner", "intermediate", "advanced"] as CoachMode[]).map((modeName) => (
+                    <button
+                      key={modeName}
+                      className={coachMode === modeName ? "activeCoachMode" : ""}
+                      onClick={() => setCoachMode(modeName)}
+                    >
+                      {modeName}
+                    </button>
+                  ))}
+                </div>
+                <span>
+                  Evaluation: {formatEvaluation(stockfishAnalysis)} · Coach mode: {coachMode}
+                </span>
               </div>
               <div className="coachLine">
                 <strong>{getReviewLabel(reviewScore)}</strong>
@@ -2305,6 +2953,18 @@ function openExternal(url: string, label: string) {
                   </article>
                 ))}
               </div>
+              <div className="utilityGrid">
+                {coachActionPlan.map((item) => (
+                  <article className="utilityCard" key={item.title}>
+                    <Brain size={20} />
+                    <h3>{item.title}</h3>
+                    <p>{item.text}</p>
+                    <button className="ghostButton" onClick={() => setView("play")}>
+                      Return to board
+                    </button>
+                  </article>
+                ))}
+              </div>
             </section>
           )}
 
@@ -2321,7 +2981,9 @@ function openExternal(url: string, label: string) {
                 </button>
               </div>
               <div className="historyList">
-                {savedGames.length === 0 ? (
+                {historyLoading ? (
+                  <div className="emptyState">Loading your saved games...</div>
+                ) : savedGames.length === 0 ? (
                   <div className="emptyState">Finish or save a game to build your archive.</div>
                 ) : (
                   savedGames.map((savedGame) => (
@@ -2384,10 +3046,10 @@ function openExternal(url: string, label: string) {
                   <span className="eyebrow">{t("clubhouse")}</span>
                   <h2>{t("communityHub")}</h2>
                   <p className="sectionLead">
-                    {getCommunityHeadline(profile)} {joinedRoom ? `${t("currentRoom")}: ${joinedRoom}.` : ""}
+                    {getCommunityHeadline(profile)} {roomState?.roomId ? `${t("currentRoom")}: ${roomState.roomId}.` : ""}
                   </p>
                 </div>
-                <button className="primaryButton" onClick={createRoom}>
+                <button className="primaryButton" onClick={() => void createRoom()}>
                   <Users size={16} />
                   {t("hostRoom")}
                 </button>
@@ -2421,6 +3083,18 @@ function openExternal(url: string, label: string) {
                     <button className="ghostButton" onClick={() => setView("play")}>
                       {t("openRoom")}
                     </button>
+                  </div>
+                  <div className="utilityGrid">
+                    {communityExtras.map((item) => (
+                      <article className="utilityCard" key={item.title}>
+                        <Users size={20} />
+                        <h3>{item.title}</h3>
+                        <p>{item.text}</p>
+                        <button className="ghostButton" onClick={() => setView("play")}>
+                          Open room
+                        </button>
+                      </article>
+                    ))}
                   </div>
                 </div>
               ) : (
@@ -2471,6 +3145,18 @@ function openExternal(url: string, label: string) {
                         <small>{link.source}</small>
                         <ExternalLink size={15} />
                       </button>
+                    ))}
+                  </div>
+                  <div className="utilityGrid">
+                    {communityExtras.map((item) => (
+                      <article className="utilityCard" key={item.title}>
+                        <Users size={20} />
+                        <h3>{item.title}</h3>
+                        <p>{item.text}</p>
+                        <button className="ghostButton" onClick={() => setView("play")}>
+                          Open room
+                        </button>
+                      </article>
                     ))}
                   </div>
                 </>
@@ -2532,15 +3218,15 @@ function openExternal(url: string, label: string) {
             <div className="authFeatureList">
               <div>
                 <Database size={16} />
-                <span>{cloud.enabled ? "Firebase Auth + Firestore active" : "Firebase Auth + Firestore ready"}</span>
+                <span>Backend auth, history, and notifications active</span>
               </div>
               <div>
                 <Shield size={16} />
-                <span>{cloud.enabled ? "Cloud progress sync enabled" : "Local fallback protects demo flow"}</span>
+                <span>Protected session cookie and verified email/password flow</span>
               </div>
               <div>
                 <Users size={16} />
-                <span>{cloudRoomLive ? "Public friend room live" : "Friend rooms become public after deploy"}</span>
+                <span>{roomState?.roomId ? "Socket room connected" : "Create a room to start live multiplayer"}</span>
               </div>
             </div>
             <div className="authStack">
@@ -2561,6 +3247,64 @@ function openExternal(url: string, label: string) {
               City
               <input value={profile.city} onChange={(event) => setProfile({ ...profile, city: event.target.value || "Almaty" })} />
             </label>
+            <div className="settingsGroup">
+              <span>Email notifications</span>
+              <div className="notificationOptions">
+                <label className="toggleRow">
+                  <input
+                    type="checkbox"
+                    checked={profile.notifications.gameInvitations}
+                    onChange={(event) =>
+                      setProfile((current) => ({
+                        ...current,
+                        notifications: {
+                          ...current.notifications,
+                          gameInvitations: event.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                  <span>Game invitations</span>
+                </label>
+                <label className="toggleRow">
+                  <input
+                    type="checkbox"
+                    checked={profile.notifications.gameResults}
+                    onChange={(event) =>
+                      setProfile((current) => ({
+                        ...current,
+                        notifications: {
+                          ...current.notifications,
+                          gameResults: event.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                  <span>Game results</span>
+                </label>
+                <label className="toggleRow">
+                  <input
+                    type="checkbox"
+                    checked={profile.notifications.coachTips}
+                    onChange={(event) =>
+                      setProfile((current) => ({
+                        ...current,
+                        notifications: {
+                          ...current.notifications,
+                          coachTips: event.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                  <span>Coach tips</span>
+                </label>
+              </div>
+            </div>
+            {profile.signedIn && (
+              <button className="primaryButton" onClick={() => void persistProfileSettings()} disabled={authPending}>
+                {authPending ? "Saving..." : "Save settings"}
+              </button>
+            )}
           </div>
 
           <div className="roadmapCard grandmasterCard">
@@ -2614,9 +3358,9 @@ function openExternal(url: string, label: string) {
               <span>Game history</span>
               <span>Auth + progress</span>
               <span>Dark / light</span>
-              <span>{cloud.enabled ? "Firebase active" : "Firebase ready"}</span>
+              <span>Secure sign-in</span>
               <span>Mobile board</span>
-              <span>{cloudRoomLive ? "Live cloud rooms" : "Friend links ready"}</span>
+              <span>Live socket rooms</span>
               <span>AI Coach</span>
               <span>City leaderboard</span>
               <span>Training academy</span>
@@ -2658,61 +3402,31 @@ function openExternal(url: string, label: string) {
                 </button>
               </div>
             </div>
+            <div className="settingsGroup">
+              <span>Notification routing</span>
+              <div className="notificationOptions">
+                <div className="toggleRow">
+                  <span>Invitation emails</span>
+                  <strong>{profile.notifications.gameInvitations ? "On" : "Off"}</strong>
+                </div>
+                <div className="toggleRow">
+                  <span>Result emails</span>
+                  <strong>{profile.notifications.gameResults ? "On" : "Off"}</strong>
+                </div>
+                <div className="toggleRow">
+                  <span>Coach emails</span>
+                  <strong>{profile.notifications.coachTips ? "On" : "Off"}</strong>
+                </div>
+              </div>
+            </div>
           </div>
         </aside>
       </section>
-
-      {authOpen && (
-        <div className="modalOverlay" role="dialog" aria-modal="true">
-          <form className="authModal" onSubmit={submitAuth}>
-            <button className="modalClose" type="button" onClick={() => setAuthOpen(false)}>
-              ×
-            </button>
-            <div>
-              <span className="eyebrow">{authMode === "login" ? "Welcome back" : "Join Chess Master"}</span>
-              <h2>{authMode === "login" ? "Log in to continue training" : "Create your chess account"}</h2>
-              <p>
-                {cloud.enabled
-                  ? "Firebase Auth is enabled. Accounts work across browsers after deployment."
-                  : "Local auth is active. Add Firebase env keys for professional public accounts."}
-              </p>
-            </div>
-            <div className="authModeSwitch">
-              <button type="button" className={authMode === "login" ? "activeAuthMode" : ""} onClick={() => setAuthMode("login")}>Log in</button>
-              <button type="button" className={authMode === "signup" ? "activeAuthMode" : ""} onClick={() => setAuthMode("signup")}>Create account</button>
-            </div>
-            <div className="authProof">
-              <span><CheckCircle2 size={15} /> Saved progress</span>
-              <span><CheckCircle2 size={15} /> Cloud rooms</span>
-              <span><CheckCircle2 size={15} /> Coach history</span>
-            </div>
-            {authMode === "signup" && (
-              <label>
-                Name
-                <input required value={authForm.name} onChange={(event) => setAuthForm({ ...authForm, name: event.target.value })} />
-              </label>
-            )}
-            <label>
-              Email
-              <input required type="email" value={authForm.email} onChange={(event) => setAuthForm({ ...authForm, email: event.target.value })} />
-            </label>
-            <label>
-              Password
-              <input required type="password" minLength={6} value={authForm.password} onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })} />
-            </label>
-            <label>
-              City
-              <input value={authForm.city} onChange={(event) => setAuthForm({ ...authForm, city: event.target.value })} />
-            </label>
-            <button className="primaryButton" type="submit">
-              {authMode === "login" ? "Log in" : "Create account"}
-            </button>
-            <button className="textButton" type="button" onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}>
-              {authMode === "login" ? "Need an account? Sign up" : "Already have an account? Log in"}
-            </button>
-          </form>
-        </div>
       )}
+
+      <div className="globalToast" role="status" aria-live="polite">
+        {toast}
+      </div>
 
       {quizOpen && (
         <div className="modalOverlay" role="dialog" aria-modal="true">

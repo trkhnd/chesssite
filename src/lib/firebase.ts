@@ -2,8 +2,10 @@ import { initializeApp, type FirebaseApp } from "firebase/app";
 import {
   createUserWithEmailAndPassword,
   getAuth,
+  GoogleAuthProvider,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signOut,
   updateProfile,
   type User,
@@ -83,6 +85,13 @@ export async function signUpCloud(email: string, password: string, name: string,
 export async function loginCloud(email: string, password: string) {
   if (!cloud.auth) throw new Error("Firebase is not configured.");
   return signInWithEmailAndPassword(cloud.auth, email, password);
+}
+
+export async function loginWithGoogleCloud() {
+  if (!cloud.auth) throw new Error("Firebase is not configured.");
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  return signInWithPopup(cloud.auth, provider);
 }
 
 export async function logoutCloud() {
