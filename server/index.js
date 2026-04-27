@@ -63,6 +63,13 @@ function isAllowedOrigin(origin) {
   }
 }
 
+function getAllowedOrigins() {
+  return [config.clientUrl, process.env.CORS_EXTRA_ORIGINS || "", "https://chesssite-ochre.vercel.app"]
+    .flatMap((value) => String(value).split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 const corsOptions = {
   origin(origin, callback) {
     if (isAllowedOrigin(origin)) {
@@ -78,6 +85,7 @@ const corsOptions = {
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: corsOptions });
+app.set("trust proxy", 1);
 
 const googleClient = flags.googleEnabled
   ? new OAuth2Client(config.googleClientId, config.googleClientSecret, "postmessage")
@@ -123,9 +131,22 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(morgan("dev"));
+app.use((req, _res, next) => {
+  if (req.path.startsWith("/api/auth") || req.path.startsWith("/api/rooms")) {
+    logger.info("request", req.method, req.path, "origin", req.headers.origin || "none");
+  }
+  next();
+});
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    nodeEnv: config.nodeEnv,
+    port: config.port,
+    clientUrl: config.clientUrl,
+    serverUrl: config.serverUrl,
+    allowedOrigins: getAllowedOrigins(),
+  });
 });
 
 app.get("/api/public-config", (_req, res) => {
@@ -570,15 +591,32 @@ io.on("connection", (socket) => {
 });
 
 server.listen(config.port, () => {
-  logger.info(`Chess Master backend listening on ${config.serverUrl}`);
+  logger.info("Chess Master backend listening", {
+    port: config.port,
+    nodeEnv: config.nodeEnv,
+    clientUrl: config.clientUrl,
+    serverUrl: config.serverUrl,
+    allowedOrigins: getAllowedOrigins(),
+  });
 });
 
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   if (error instanceof SyntaxError && "body" in error) {
     sendError(res, 400, "Request body must be valid JSON.");
     return;
   }
 
-  logger.error("Unhandled API error", error instanceof Error ? error.message : error);
+  logger.error("Unhandled API error", {
+    method: req.method,
+    path: req.path,
+    origin: req.headers.origin || "none",
+    message: error instanceof Error ? error.message : String(error),
+  });
+
+  if (error instanceof Error && /CORS/i.test(error.message)) {
+    sendError(res, 403, "CORS origin is not allowed.");
+    return;
+  }
+
   sendError(res, 500, "Server error.");
 });

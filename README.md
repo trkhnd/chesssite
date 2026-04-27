@@ -75,6 +75,9 @@ Notes:
 - `CORS_EXTRA_ORIGINS` can hold a comma-separated list of additional allowed frontend origins.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are optional. The frontend now uses email/password auth by default, and Google should only be re-enabled if the backend OAuth flow is configured and tested.
 - If you use Gmail SMTP, use a Gmail App Password, not your normal Gmail password.
+- Deployment-ready examples live here:
+  - [frontend/.env.example](/Users/torekhan.danial/Documents/Codex/2026-04-26/23-59-28-ai-vibe-coding/frontend/.env.example)
+  - [server/.env.example](/Users/torekhan.danial/Documents/Codex/2026-04-26/23-59-28-ai-vibe-coding/server/.env.example)
 
 ## Running Locally
 
@@ -275,6 +278,56 @@ Backend deployment checklist:
 - `CLIENT_URL` must match the deployed frontend origin
 - cookies require HTTPS in production
 - if you use preview deployments, add them to `CORS_EXTRA_ORIGINS`
+- open `/api/health` after deploy and confirm the reported `clientUrl`, `serverUrl`, and `allowedOrigins`
+
+Exact Render backend setup:
+
+1. Create a new Render Web Service from this repo.
+2. Set **Build Command** to:
+
+```bash
+npm install
+```
+
+3. Set **Start Command** to:
+
+```bash
+npm run start:server
+```
+
+4. Add these environment variables in Render:
+
+```env
+PORT=5000
+CLIENT_URL=https://chesssite-ochre.vercel.app
+SERVER_URL=https://your-backend-url.com
+CORS_EXTRA_ORIGINS=
+DATABASE_URL=./data/chess-master.db
+JWT_SECRET=replace-this
+```
+
+5. Deploy, then open:
+
+```text
+https://your-backend-url.com/api/health
+```
+
+You should see JSON with:
+- `ok: true`
+- `port`
+- `clientUrl`
+- `serverUrl`
+- `allowedOrigins`
+
+6. In Vercel, set:
+
+```env
+VITE_API_URL=https://your-backend-url.com
+```
+
+7. Redeploy the frontend.
+
+At that point, production requests should no longer depend on localhost.
 
 ### Common Deployment Errors
 
@@ -283,11 +336,24 @@ Backend deployment checklist:
   - backend deployment is down
 - `Server unavailable`
   - backend returned a 5xx error or could not be reached
+- `CORS origin is not allowed`
+  - `CLIENT_URL` does not match the real Vercel domain
+  - preview or alternate frontend domains must be added to `CORS_EXTRA_ORIGINS`
 - auth works locally but not in production
   - `CLIENT_URL` does not match the real frontend URL
   - production cookies need HTTPS
   - cross-origin deployments need `SameSite=None`
 7. Put the app behind HTTPS so secure cookies work properly.
+
+## Backend Logging In Production
+
+The backend now logs:
+
+- startup configuration: `port`, `clientUrl`, `serverUrl`, `allowedOrigins`
+- auth and room request origins
+- unhandled API errors with `method`, `path`, `origin`, and the backend error message
+
+That makes Render logs much more useful when a deployed signup or login fails.
 
 ## Current Notes
 
