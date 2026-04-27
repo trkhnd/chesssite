@@ -122,12 +122,12 @@ export class RoomManager {
 
     if (room.white.id === user.id) {
       room.disconnectedUserId = null;
-      return { ok: true, room, color: "white" };
+      return { ok: true, room, color: "white", playerJoined: false };
     }
 
     if (room.black?.id === user.id) {
       room.disconnectedUserId = null;
-      return { ok: true, room, color: "black" };
+      return { ok: true, room, color: "black", playerJoined: false };
     }
 
     if (!room.black) {
@@ -139,7 +139,7 @@ export class RoomManager {
       };
       room.lastTickAt = Date.now();
       room.disconnectedUserId = null;
-      return { ok: true, room, color: "black" };
+      return { ok: true, room, color: "black", playerJoined: true };
     }
 
     return { ok: false, error: "This room already has two players." };

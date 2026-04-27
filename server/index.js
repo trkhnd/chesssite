@@ -542,11 +542,20 @@ io.on("connection", (socket) => {
     }
     socket.data.roomId = joinResult.room.id;
     socket.join(joinResult.room.id);
-    io.to(joinResult.room.id).emit("room:state", roomManager.toState(joinResult.room));
+    const state = roomManager.toState(joinResult.room);
+    io.to(joinResult.room.id).emit("room:state", state);
+    io.to(joinResult.room.id).emit("gameState", state);
+    if (joinResult.playerJoined && joinResult.room.black) {
+      io.to(joinResult.room.id).emit("playerJoined", {
+        roomId: joinResult.room.id,
+        color: joinResult.color,
+        player: joinResult.room.black,
+      });
+    }
     callback?.({
       ok: true,
       color: joinResult.color,
-      state: roomManager.toState(joinResult.room),
+      state,
     });
   });
 
@@ -557,8 +566,20 @@ io.on("connection", (socket) => {
       return;
     }
 
-    io.to(moveResult.room.id).emit("room:state", roomManager.toState(moveResult.room));
-    callback?.({ ok: true, state: roomManager.toState(moveResult.room) });
+    const state = roomManager.toState(moveResult.room);
+    io.to(moveResult.room.id).emit("room:state", state);
+    io.to(moveResult.room.id).emit("gameState", state);
+    io.to(moveResult.room.id).emit("moveMade", {
+      roomId: moveResult.room.id,
+      move: {
+        san: moveResult.move.san,
+        from: moveResult.move.from,
+        to: moveResult.move.to,
+        color: moveResult.move.color === "w" ? "white" : "black",
+      },
+      state,
+    });
+    callback?.({ ok: true, state });
 
     if (moveResult.finished) {
       await persistFinishedGame(moveResult.room, moveResult);
@@ -571,8 +592,10 @@ io.on("connection", (socket) => {
       callback?.(result);
       return;
     }
-    io.to(result.room.id).emit("room:state", roomManager.toState(result.room));
-    callback?.({ ok: true, state: roomManager.toState(result.room) });
+    const state = roomManager.toState(result.room);
+    io.to(result.room.id).emit("room:state", state);
+    io.to(result.room.id).emit("gameState", state);
+    callback?.({ ok: true, state });
   });
 
   socket.on("room:resign", async (payload, callback) => {
@@ -581,8 +604,10 @@ io.on("connection", (socket) => {
       callback?.(result);
       return;
     }
-    io.to(result.room.id).emit("room:state", roomManager.toState(result.room));
-    callback?.({ ok: true, state: roomManager.toState(result.room) });
+    const state = roomManager.toState(result.room);
+    io.to(result.room.id).emit("room:state", state);
+    io.to(result.room.id).emit("gameState", state);
+    callback?.({ ok: true, state });
     if (result.finished) {
       await persistFinishedGame(result.room, result);
     }
@@ -594,8 +619,10 @@ io.on("connection", (socket) => {
       callback?.(result);
       return;
     }
-    io.to(result.room.id).emit("room:state", roomManager.toState(result.room));
-    callback?.({ ok: true, state: roomManager.toState(result.room) });
+    const state = roomManager.toState(result.room);
+    io.to(result.room.id).emit("room:state", state);
+    io.to(result.room.id).emit("gameState", state);
+    callback?.({ ok: true, state });
     if (result.finished) {
       await persistFinishedGame(result.room, result);
     }
@@ -605,7 +632,14 @@ io.on("connection", (socket) => {
     if (!socket.data.roomId) return;
     const room = roomManager.disconnect(socket.data.roomId, user.id);
     if (room) {
-      io.to(room.id).emit("room:state", roomManager.toState(room));
+      const state = roomManager.toState(room);
+      io.to(room.id).emit("room:state", state);
+      io.to(room.id).emit("gameState", state);
+      io.to(room.id).emit("opponentDisconnected", {
+        roomId: room.id,
+        userId: user.id,
+        state,
+      });
     }
   });
 });

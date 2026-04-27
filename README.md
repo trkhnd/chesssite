@@ -16,9 +16,10 @@ Chess Master is a modern chess platform with a React frontend and a Node.js back
 - Game history persisted in the backend
 - Email notifications for invites, results, sign-in notices, and coach tips
 - Notification preferences for invitations, results, and coach emails
-- AI play, puzzles, academy, community hub, city leaderboard, and themes
+- AI play, infinite puzzle queue, academy, community hub, city leaderboard, and themes
 - City-aware community suggestions with 2GIS search links
 - Stockfish-assisted coach with fallback heuristics, evaluation, best move, and difficulty modes
+- Saved-game analysis page with move-by-move coach review at `/analysis/:gameId`
 - Responsive layout for phone, tablet, and desktop
 
 ## Tech Stack
@@ -154,7 +155,17 @@ If `VITE_API_URL` is empty, the app falls back to same-origin relative requests 
   - Optional board auto-rotation after every legal move
 - `Play vs Friend online`
   - Creates a live room link with automatic white/black assignment
-  - Uses Socket.IO for move sync and room state updates
+  - Uses Socket.IO for move sync, room-state updates, join notices, and disconnect handling
+
+## Puzzle System
+
+- Daily tactics view now supports:
+  - `Easy`, `Medium`, and `Hard` filters
+  - automatic next-puzzle loading after a solve
+  - previous/next review navigation through your puzzle session
+  - non-repeating solved puzzles within the current difficulty track
+  - solution replay and hint actions
+- When a difficulty track is fully solved, Chess Master generates a fresh puzzle locally so the training lane never runs dry.
 
 ## Timer Controls
 
@@ -213,7 +224,8 @@ Coach levels:
 Coach surfaces:
 
 - dedicated `Coach` page
-- coach panel beside the board on the game page
+- post-game analysis flow from History via `Analyze with Coach`
+- live games stay coach-free until the result is final
 
 ## Google OAuth Setup
 

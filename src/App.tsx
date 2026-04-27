@@ -38,6 +38,7 @@ import {
 import {
   createFriendRoom,
   getHistory,
+  getRoom,
   getSession,
   loginUser,
   logoutUser,
@@ -148,12 +149,15 @@ type CoachInsight = {
   text: string;
 };
 
+type PuzzleDifficulty = "easy" | "medium" | "hard";
+
 type Puzzle = {
   title: string;
   fen: string;
   theme: string;
   rating: number;
   goal: string;
+  difficulty?: PuzzleDifficulty;
   solution: {
     from: Square;
     to: Square;
@@ -440,6 +444,7 @@ const puzzles: Puzzle[] = [
     fen: "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1",
     theme: "Mate",
     rating: 900,
+    difficulty: "easy",
     goal: "White to move. Find the checkmate on the back rank.",
     solution: { from: "e1", to: "e8", san: "Re8#" },
   },
@@ -448,6 +453,7 @@ const puzzles: Puzzle[] = [
     fen: "6k1/5ppp/8/8/3q4/2N5/5PPP/3Q2K1 w - - 0 1",
     theme: "Fork",
     rating: 1250,
+    difficulty: "medium",
     goal: "White to move. Use the knight fork to attack king and queen.",
     solution: { from: "c3", to: "b5", san: "Nb5" },
   },
@@ -456,6 +462,7 @@ const puzzles: Puzzle[] = [
     fen: "8/5pk1/6p1/4P3/4KPPP/8/8/8 w - - 0 1",
     theme: "Endgame",
     rating: 1320,
+    difficulty: "hard",
     goal: "White to move. Activate the king and keep opposition.",
     solution: { from: "e4", to: "d5", san: "Kd5" },
   },
@@ -467,6 +474,7 @@ const generatedPuzzleBank: Puzzle[] = [
     fen: "6k1/6pp/8/8/8/8/6PP/5RK1 w - - 0 1",
     theme: "Mate",
     rating: 980,
+    difficulty: "easy",
     goal: "White to move. Use the rook to finish the exposed king.",
     solution: { from: "f1", to: "f8", san: "Rf8#" },
   },
@@ -475,6 +483,7 @@ const generatedPuzzleBank: Puzzle[] = [
     fen: "4k3/8/8/8/3q4/8/4N3/4K3 w - - 0 1",
     theme: "Fork",
     rating: 1180,
+    difficulty: "medium",
     goal: "White to move. Find the knight fork that attacks king and queen.",
     solution: { from: "e2", to: "c3", san: "Nc3+" },
   },
@@ -483,6 +492,7 @@ const generatedPuzzleBank: Puzzle[] = [
     fen: "8/8/5k2/4p3/4P3/5K2/8/8 w - - 0 1",
     theme: "Endgame",
     rating: 1100,
+    difficulty: "hard",
     goal: "White to move. Step into the opposition path.",
     solution: { from: "f3", to: "e3", san: "Ke3" },
   },
@@ -821,6 +831,25 @@ function loadPuzzleGame(index: number, puzzleList = puzzles) {
   return new Chess(puzzleList[index].fen);
 }
 
+function getPuzzleDifficulty(puzzle: Puzzle): PuzzleDifficulty {
+  if (puzzle.difficulty) return puzzle.difficulty;
+  if (puzzle.rating <= 1000) return "easy";
+  if (puzzle.rating <= 1250) return "medium";
+  return "hard";
+}
+
+function getPuzzleDifficultyLabel(difficulty: PuzzleDifficulty) {
+  if (difficulty === "easy") return "Easy";
+  if (difficulty === "medium") return "Medium";
+  return "Hard";
+}
+
+function getPuzzlesForDifficulty(puzzleList: Puzzle[], difficulty: PuzzleDifficulty) {
+  return puzzleList
+    .map((puzzle, index) => ({ puzzle, index }))
+    .filter(({ puzzle }) => getPuzzleDifficulty(puzzle) === difficulty);
+}
+
 function isSameMove(move: Move, puzzle: Puzzle) {
   return move.from === puzzle.solution.from && move.to === puzzle.solution.to;
 }
@@ -829,6 +858,26 @@ function getPuzzleHint(puzzle: Puzzle) {
   if (puzzle.theme === "Mate") return "Hint: look for a rook move that gives check along the open file.";
   if (puzzle.theme === "Fork") return "Hint: a knight can attack two important pieces at once.";
   return "Hint: in king and pawn endings, opposition and king activity decide everything.";
+}
+
+function getNextUnsolvedPuzzleIndex(params: {
+  puzzleList: Puzzle[];
+  solved: Record<string, boolean>;
+  difficulty: PuzzleDifficulty;
+  currentIndex: number;
+}) {
+  const matching = getPuzzlesForDifficulty(params.puzzleList, params.difficulty);
+  if (matching.length === 0) return -1;
+
+  const currentPosition = matching.findIndex(({ index }) => index === params.currentIndex);
+  for (let offset = 1; offset <= matching.length; offset += 1) {
+    const candidate = matching[(Math.max(currentPosition, 0) + offset) % matching.length];
+    if (!params.solved[candidate.puzzle.title]) {
+      return candidate.index;
+    }
+  }
+
+  return -1;
 }
 
 function finishPuzzleReply(game: Chess) {
@@ -1093,7 +1142,7 @@ function getPuzzleButtonLabel(active: boolean, solved: boolean) {
 
 function getSelectedPuzzleHeader(index: number, solved: Record<string, boolean>, puzzleList = puzzles) {
   const puzzle = puzzleList[index];
-  return `${puzzle.title} · ${puzzle.theme} · ${solved[puzzle.title] ? "solved" : "unsolved"}`;
+  return `${puzzle.title} · ${puzzle.theme} · ${getPuzzleDifficultyLabel(getPuzzleDifficulty(puzzle))} · ${solved[puzzle.title] ? "solved" : "unsolved"}`;
 }
 
 function getLearnHeroTitle(progress: Record<string, number>) {
@@ -1179,13 +1228,22 @@ function openProCheckout() {
   return false;
 }
 
-function makeGeneratedPuzzle(existingCount: number) {
-  const base = generatedPuzzleBank[existingCount % generatedPuzzleBank.length];
+function makeGeneratedPuzzle(existingCount: number, difficulty?: PuzzleDifficulty) {
+  const matchingBank = difficulty
+    ? generatedPuzzleBank.filter((puzzle) => getPuzzleDifficulty(puzzle) === difficulty)
+    : generatedPuzzleBank;
+  const bank = matchingBank.length > 0 ? matchingBank : generatedPuzzleBank;
+  const base = bank[existingCount % bank.length];
   return {
     ...base,
     title: `${base.title} ${Math.floor(existingCount / generatedPuzzleBank.length) + 1}`,
     rating: base.rating + existingCount * 25,
+    difficulty: difficulty || base.difficulty,
   };
+}
+
+function makeStarterPuzzleSet() {
+  return [...puzzles, ...Array.from({ length: 6 }, (_, index) => makeGeneratedPuzzle(puzzles.length + index))];
 }
 
 function getCapturedPieces(history: Move[]) {
@@ -1428,6 +1486,17 @@ function parseSavedGameMoves(savedGame: SavedGame) {
     }
   });
   return { moves, positions };
+}
+
+function extractMovesFromPgn(pgn: string) {
+  if (!pgn.trim()) return [];
+  const replay = new Chess();
+  try {
+    replay.loadPgn(pgn);
+    return replay.history();
+  } catch {
+    return [];
+  }
 }
 
 function clampAnalysisIndex(positionsLength: number, nextIndex: number) {
@@ -1744,13 +1813,16 @@ export default function App() {
   const [lessonProgress, setLessonProgress] = useState<Record<string, number>>(() =>
     loadJson("cm-lesson-progress", makeLessonProgressDefaults()),
   );
-  const [puzzleSet, setPuzzleSet] = useState<Puzzle[]>(() => loadJson("cm-puzzle-set", puzzles));
+  const [puzzleSet, setPuzzleSet] = useState<Puzzle[]>(() => loadJson("cm-puzzle-set", makeStarterPuzzleSet()));
   const [selectedPuzzleIndex, setSelectedPuzzleIndex] = useState(0);
   const [puzzleGame, setPuzzleGame] = useState(() => loadPuzzleGame(0));
   const [puzzleSelected, setPuzzleSelected] = useState<Square | null>(null);
   const [puzzleTargets, setPuzzleTargets] = useState<Square[]>([]);
   const [puzzleSolved, setPuzzleSolved] = useState<Record<string, boolean>>(() => loadJson("cm-puzzle-solved", {}));
   const [puzzleMessage, setPuzzleMessage] = useState(puzzles[0].goal);
+  const [puzzleDifficulty, setPuzzleDifficulty] = useState<PuzzleDifficulty>(() => loadJson("cm-puzzle-difficulty", "easy"));
+  const [puzzleHistory, setPuzzleHistory] = useState<number[]>([0]);
+  const [puzzleHistoryIndex, setPuzzleHistoryIndex] = useState(0);
   const [communityDetail, setCommunityDetail] = useState<CommunityDetail | null>(null);
   const [coachMode, setCoachMode] = useState<CoachMode>("beginner");
   const [stockfishBusy, setStockfishBusy] = useState(false);
@@ -1782,6 +1854,12 @@ export default function App() {
   const roomUrl = roomId ? `${window.location.origin}${roomPath(roomId)}` : "";
   const puzzleBoard = useMemo(() => makePuzzleBoard(puzzleGame), [puzzleGame]);
   const selectedPuzzle = puzzleSet[selectedPuzzleIndex] ?? puzzleSet[0];
+  const filteredPuzzleEntries = useMemo(() => getPuzzlesForDifficulty(puzzleSet, puzzleDifficulty), [puzzleSet, puzzleDifficulty]);
+  const filteredPuzzleCount = filteredPuzzleEntries.length;
+  const solvedFilteredPuzzleCount = useMemo(
+    () => filteredPuzzleEntries.filter(({ puzzle }) => puzzleSolved[puzzle.title]).length,
+    [filteredPuzzleEntries, puzzleSolved],
+  );
   const dynamicCoachTimeline = useMemo(() => getCoachTimeline(history, game), [history, game]);
   const roomList = useMemo(() => getRoomList(profile), [profile]);
   const courseCompletion = useMemo(() => getCourseCompletion(lessonProgress), [lessonProgress]);
@@ -1847,7 +1925,7 @@ export default function App() {
           coach: "AI-разбор",
           city: "Клуб города",
           lessonText: `Продолжить: ${nextLesson.title}.`,
-          puzzleText: `${solvedPuzzleCount}/${puzzleSet.length} решено. Новая задача появится после полного прохождения.`,
+          puzzleText: `${solvedFilteredPuzzleCount}/${filteredPuzzleCount} решено на уровне ${getPuzzleDifficultyLabel(puzzleDifficulty).toLowerCase()}. После решения загружается новая задача.`,
           coachText: reviewScore ? `Текущая оценка партии: ${reviewScore}%.` : "Сыграй несколько ходов, затем попроси Stockfish проверить позицию.",
           cityText: `${profile.city}: арены, комнаты и местный рейтинг.`,
           lessonButton: "Начать урок",
@@ -1870,7 +1948,7 @@ export default function App() {
           coach: "AI review",
           city: "City club",
           lessonText: `Continue: ${nextLesson.title}.`,
-          puzzleText: `${solvedPuzzleCount}/${puzzleSet.length} solved. A fresh puzzle appears after you clear the set.`,
+          puzzleText: `${solvedFilteredPuzzleCount}/${filteredPuzzleCount} solved at the ${getPuzzleDifficultyLabel(puzzleDifficulty).toLowerCase()} level. New puzzles load automatically after each success.`,
           coachText: reviewScore ? `Current game review: ${reviewScore}%.` : "Play a few moves, then ask Stockfish to check the position.",
           cityText: `${profile.city}: arenas, rooms, and local leaderboard.`,
           lessonButton: "Start lesson",
@@ -1900,7 +1978,7 @@ export default function App() {
       icon: Dumbbell,
       title: homeCopy.puzzle,
       text: homeCopy.puzzleText,
-      metric: `${solvedPuzzleCount}/${puzzleSet.length}`,
+      metric: `${solvedFilteredPuzzleCount}/${filteredPuzzleCount || puzzleSet.length}`,
       button: homeCopy.puzzleButton,
       action: () => {
         setView("puzzles");
@@ -1974,6 +2052,40 @@ export default function App() {
   }, [puzzleSet]);
 
   useEffect(() => {
+    localStorage.setItem("cm-puzzle-difficulty", JSON.stringify(puzzleDifficulty));
+  }, [puzzleDifficulty]);
+
+  useEffect(() => {
+    const starterSet = makeStarterPuzzleSet();
+    if (puzzleSet.length >= starterSet.length) return;
+
+    const existingTitles = new Set(puzzleSet.map((puzzle) => puzzle.title));
+    const missing = starterSet.filter((puzzle) => !existingTitles.has(puzzle.title));
+    if (missing.length === 0) return;
+
+    setPuzzleSet((current) => [...current, ...missing]);
+  }, [puzzleSet]);
+
+  useEffect(() => {
+    const currentPuzzle = puzzleSet[selectedPuzzleIndex];
+    if (currentPuzzle && getPuzzleDifficulty(currentPuzzle) === puzzleDifficulty) {
+      return;
+    }
+
+    const matching = getPuzzlesForDifficulty(puzzleSet, puzzleDifficulty);
+    if (matching.length === 0) return;
+
+    const unsolved = matching.find(({ puzzle }) => !puzzleSolved[puzzle.title]) || matching[0];
+    setSelectedPuzzleIndex(unsolved.index);
+    setPuzzleGame(loadPuzzleGame(unsolved.index, puzzleSet));
+    setPuzzleSelected(null);
+    setPuzzleTargets([]);
+    setPuzzleMessage(getPuzzleResultText(unsolved.puzzle, isPuzzleSolved(puzzleSolved, unsolved.puzzle)));
+    setPuzzleHistory([unsolved.index]);
+    setPuzzleHistoryIndex(0);
+  }, [puzzleDifficulty, puzzleSet, puzzleSolved, selectedPuzzleIndex]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function bootstrapApp() {
@@ -2014,29 +2126,32 @@ export default function App() {
     setHistoryLoading(true);
     getHistory()
       .then((items) => {
-        const mapped = items.map((item) => ({
-          id: String(item.id),
-          date: String(item.finishedAt || item.createdAt || new Date().toISOString()),
-          mode: item.mode === "friend" ? "friend" : "ai",
-          result: String(item.result || "*"),
-          moves: typeof item.pgn === "string" ? item.pgn.split(" ").filter(Boolean) : [],
-          pgn: String(item.pgn || ""),
-          coach: [],
-          city: profile.city,
-          reviewScore: null,
-          status: String(item.status || ""),
-          timeControl: typeof item.summary === "string" && item.summary.includes("+") ? String(item.summary) : "",
-          opponent:
-            item.mode === "friend"
-              ? String(
-                  (
-                    (item.white as { name?: string } | undefined)?.name === profile.name
-                      ? (item.black as { name?: string } | undefined)?.name
-                      : (item.white as { name?: string } | undefined)?.name
-                  ) || "Friend",
-                )
-              : aiProfiles[aiLevel].name,
-        })) as SavedGame[];
+        const mapped = items.map((item) => {
+          const pgn = String(item.pgn || "");
+          return {
+            id: String(item.id),
+            date: String(item.finishedAt || item.createdAt || new Date().toISOString()),
+            mode: item.mode === "friend" ? "friend" : "ai",
+            result: String(item.result || "*"),
+            moves: extractMovesFromPgn(pgn),
+            pgn,
+            coach: [],
+            city: profile.city,
+            reviewScore: null,
+            status: String(item.status || ""),
+            timeControl: typeof item.summary === "string" && item.summary.includes("+") ? String(item.summary) : "",
+            opponent:
+              item.mode === "friend"
+                ? String(
+                    (
+                      (item.white as { name?: string } | undefined)?.name === profile.name
+                        ? (item.black as { name?: string } | undefined)?.name
+                        : (item.white as { name?: string } | undefined)?.name
+                    ) || "Friend",
+                  )
+                : aiProfiles[aiLevel].name,
+          };
+        }) as SavedGame[];
         setSavedGames(mapped);
       })
       .catch((error) => setToast(error instanceof Error ? error.message : "Failed to load history."))
@@ -2071,6 +2186,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!profile.signedIn || !roomId) return;
+
+    let cancelled = false;
+    getRoom(roomId)
+      .then((response) => {
+        if (cancelled) return;
+        if (response.state) {
+          setRoomState(response.state);
+          setFriendColor(response.color);
+          setMode("friend");
+          setView("game");
+          syncGame(new Chess(response.state.fen));
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setToast(normalizeAuthMessage(error instanceof Error ? error.message : "Unable to load room.", profile.signedIn));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.signedIn, roomId]);
+
+  useEffect(() => {
     if (!profile.signedIn || !roomId || !socketSessionToken) return;
 
     const socket = getSocket();
@@ -2086,10 +2226,26 @@ export default function App() {
     const handleRoomError = (payload: { error?: string }) => {
       setToast(normalizeAuthMessage(payload?.error || "Live room connection failed.", profile.signedIn));
     };
+    const handlePlayerJoined = (payload: { player?: { name?: string } | null }) => {
+      if (payload?.player?.name) {
+        setToast(`${payload.player.name} joined the room as Black.`);
+      }
+    };
+    const handleMoveMade = (payload: { move?: { san?: string; color?: "white" | "black" } }) => {
+      if (!payload?.move?.san) return;
+      setToast(`${payload.move.color === "white" ? "White" : "Black"} played ${payload.move.san}.`);
+    };
+    const handleOpponentDisconnected = () => {
+      setToast("Opponent disconnected. The room will stay open if they come back.");
+    };
 
     socket.on("room:state", handleRoomState);
+    socket.on("gameState", handleRoomState);
     socket.on("connect_error", handleConnectError);
     socket.on("room:error", handleRoomError);
+    socket.on("playerJoined", handlePlayerJoined);
+    socket.on("moveMade", handleMoveMade);
+    socket.on("opponentDisconnected", handleOpponentDisconnected);
 
     if (!socket.connected) {
       socket.connect();
@@ -2120,8 +2276,12 @@ export default function App() {
     return () => {
       window.clearInterval(syncInterval);
       socket.off("room:state", handleRoomState);
+      socket.off("gameState", handleRoomState);
       socket.off("connect_error", handleConnectError);
       socket.off("room:error", handleRoomError);
+      socket.off("playerJoined", handlePlayerJoined);
+      socket.off("moveMade", handleMoveMade);
+      socket.off("opponentDisconnected", handleOpponentDisconnected);
       socket.disconnect();
     };
   }, [profile.signedIn, roomId, socketSessionToken]);
@@ -2326,7 +2486,7 @@ export default function App() {
         },
         (response: { ok: boolean; error?: string; state?: RoomState }) => {
           if (!response?.ok) {
-            setToast(response?.error || "Move rejected.");
+            setToast(normalizeAuthMessage(response?.error || "Move rejected.", profile.signedIn));
             return;
           }
 
@@ -2459,6 +2619,7 @@ export default function App() {
       setRoomId(room.roomId);
       setMode("friend");
       setFriendColor("white");
+      setInviteEmail("");
       setRoomState(room.state);
       resetLocalClock(selectedTimeControl);
       openGameView(roomPath(room.roomId));
@@ -2511,7 +2672,7 @@ export default function App() {
       const socket = getSocket();
       socket.emit("room:draw", { roomId }, (response: { ok: boolean; error?: string; state?: RoomState }) => {
         if (!response?.ok) {
-          setToast(response?.error || "Draw request failed.");
+          setToast(normalizeAuthMessage(response?.error || "Draw request failed.", profile.signedIn));
           return;
         }
         if (response.state) {
@@ -2533,7 +2694,7 @@ export default function App() {
       const socket = getSocket();
       socket.emit("room:resign", { roomId }, (response: { ok: boolean; error?: string; state?: RoomState }) => {
         if (!response?.ok) {
-          setToast(response?.error || "Resign failed.");
+          setToast(normalizeAuthMessage(response?.error || "Resign failed.", profile.signedIn));
           return;
         }
         if (response.state) {
@@ -2728,12 +2889,80 @@ export default function App() {
     setToast(getLessonBoost(title));
   }
 
-  function selectPuzzle(index: number) {
+  function loadPuzzleIndex(index: number, options?: { pushHistory?: boolean; message?: string }) {
+    const puzzle = puzzleSet[index];
+    if (!puzzle) return;
+
     setSelectedPuzzleIndex(index);
     setPuzzleGame(loadPuzzleGame(index, puzzleSet));
     setPuzzleSelected(null);
     setPuzzleTargets([]);
-    setPuzzleMessage(getPuzzleResultText(puzzleSet[index], isPuzzleSolved(puzzleSolved, puzzleSet[index])));
+    setPuzzleMessage(options?.message || getPuzzleResultText(puzzle, isPuzzleSolved(puzzleSolved, puzzle)));
+
+    if (options?.pushHistory) {
+      setPuzzleHistory((current) => {
+        const nextHistory = [...current.slice(0, puzzleHistoryIndex + 1), index];
+        setPuzzleHistoryIndex(nextHistory.length - 1);
+        return nextHistory;
+      });
+    }
+  }
+
+  function selectPuzzle(index: number) {
+    loadPuzzleIndex(index, { pushHistory: true });
+  }
+
+  function goToPuzzleHistory(nextHistoryIndex: number) {
+    const clamped = Math.max(0, Math.min(puzzleHistory.length - 1, nextHistoryIndex));
+    const nextPuzzleIndex = puzzleHistory[clamped];
+    if (typeof nextPuzzleIndex !== "number") return;
+    setPuzzleHistoryIndex(clamped);
+    loadPuzzleIndex(nextPuzzleIndex);
+  }
+
+  function moveToNextPuzzle(options?: { solvedNow?: boolean }) {
+    if (puzzleHistoryIndex < puzzleHistory.length - 1) {
+      goToPuzzleHistory(puzzleHistoryIndex + 1);
+      return;
+    }
+
+    const nextIndex = getNextUnsolvedPuzzleIndex({
+      puzzleList: puzzleSet,
+      solved: puzzleSolved,
+      difficulty: puzzleDifficulty,
+      currentIndex: selectedPuzzleIndex,
+    });
+
+    if (nextIndex >= 0) {
+      loadPuzzleIndex(nextIndex, {
+        pushHistory: true,
+        message: options?.solvedNow ? `${puzzleSet[nextIndex].goal}` : undefined,
+      });
+      return;
+    }
+
+    const nextPuzzle = makeGeneratedPuzzle(puzzleSet.length, puzzleDifficulty);
+    setPuzzleSet((current) => [...current, nextPuzzle]);
+    const generatedIndex = puzzleSet.length;
+    setPuzzleSelected(null);
+    setPuzzleTargets([]);
+    setSelectedPuzzleIndex(generatedIndex);
+    setPuzzleGame(new Chess(nextPuzzle.fen));
+    setPuzzleMessage(`Fresh ${getPuzzleDifficultyLabel(getPuzzleDifficulty(nextPuzzle)).toLowerCase()} puzzle generated: ${nextPuzzle.goal}`);
+    setPuzzleHistory((current) => {
+      const nextHistory = [...current.slice(0, puzzleHistoryIndex + 1), generatedIndex];
+      setPuzzleHistoryIndex(nextHistory.length - 1);
+      return nextHistory;
+    });
+    setToast("All current puzzles at this level are solved. Chess Master generated a fresh challenge.");
+  }
+
+  function moveToPreviousPuzzle() {
+    if (puzzleHistoryIndex === 0) {
+      setToast("You are already at the first puzzle in this review path.");
+      return;
+    }
+    goToPuzzleHistory(puzzleHistoryIndex - 1);
   }
 
   function requestPuzzleHint() {
@@ -2741,10 +2970,26 @@ export default function App() {
   }
 
   function resetPuzzle() {
-    setPuzzleGame(loadPuzzleGame(selectedPuzzleIndex, puzzleSet));
-    setPuzzleSelected(null);
-    setPuzzleTargets([]);
-    setPuzzleMessage(selectedPuzzle.goal);
+    loadPuzzleIndex(selectedPuzzleIndex, { message: selectedPuzzle.goal });
+  }
+
+  function replayPuzzleSolution() {
+    const replay = new Chess(selectedPuzzle.fen);
+    try {
+      replay.move({
+        from: selectedPuzzle.solution.from,
+        to: selectedPuzzle.solution.to,
+        promotion: "q",
+      });
+      finishPuzzleReply(replay);
+      setPuzzleGame(new Chess(replay.fen()));
+      setPuzzleSelected(null);
+      setPuzzleTargets([]);
+      setPuzzleMessage(`Solution replay: ${selectedPuzzle.solution.san}. Review the final position, then try the next puzzle.`);
+      setToast("Solution replay loaded.");
+    } catch {
+      setToast("Solution replay is unavailable for this puzzle.");
+    }
   }
 
   function handlePuzzleSquareClick(square: Square) {
@@ -2783,15 +3028,9 @@ export default function App() {
       }));
       setPuzzleMessage(`${selectedPuzzle.solution.san} is correct. Pattern mastered: ${selectedPuzzle.theme}.`);
       setToast(`Puzzle solved: ${selectedPuzzle.title}.`);
-
-      if (getPuzzleSolvedCount(nextSolved, puzzleSet) === puzzleSet.length) {
-        const nextPuzzle = makeGeneratedPuzzle(puzzleSet.length);
-        setPuzzleSet((current) => [...current, nextPuzzle]);
-        setSelectedPuzzleIndex(puzzleSet.length);
-        setPuzzleGame(new Chess(nextPuzzle.fen));
-        setPuzzleMessage(`New puzzle generated: ${nextPuzzle.goal}`);
-        setToast("All puzzles solved. Chess Master generated a fresh puzzle.");
-      }
+      window.setTimeout(() => {
+        moveToNextPuzzle({ solvedNow: true });
+      }, 900);
     } else {
       setPuzzleGame(loadPuzzleGame(selectedPuzzleIndex, puzzleSet));
       setPuzzleMessage(`Not quite. ${getPuzzleHint(selectedPuzzle)}`);
@@ -3719,6 +3958,12 @@ export default function App() {
                     <div>
                       <span className="eyebrow">{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</span>
                       <h2>{aiThinking ? "AI is thinking..." : displayStatus}</h2>
+                      {mode === "friend" && roomState?.waitingForOpponent && (
+                        <p className="gameSubstatus">Share the invite link. White is ready and Black can join straight from the room URL.</p>
+                      )}
+                      {mode === "friend" && roomState?.status === "opponent disconnected" && (
+                        <p className="gameSubstatus">Your opponent disconnected. The room stays active, so they can reconnect from the same link.</p>
+                      )}
                     </div>
                     <div className="headerActions">
                       <button className="ghostButton" onClick={() => saveGame("manual")}>
@@ -4148,12 +4393,39 @@ export default function App() {
                 <div>
                   <span className="eyebrow">Tactics gym</span>
                   <h2>Daily puzzle set</h2>
-                  <p className="sectionLead">{getPuzzleProgressLabel(puzzleSolved, puzzleSet)}. Pick a puzzle, solve it on the board, and build pattern memory.</p>
+                  <p className="sectionLead">
+                    {solvedFilteredPuzzleCount}/{filteredPuzzleCount || puzzleSet.length} {getPuzzleDifficultyLabel(puzzleDifficulty).toLowerCase()} puzzles solved. Pick a puzzle, solve it on the board, and Chess Master will queue the next one automatically.
+                  </p>
                 </div>
-                <button className="primaryButton" onClick={() => selectPuzzle((selectedPuzzleIndex + 1) % puzzleSet.length)}>
-                  <Zap size={16} />
-                  Next puzzle
-                </button>
+                <div className="headerActions">
+                  <button className="ghostButton" onClick={moveToPreviousPuzzle} disabled={puzzleHistoryIndex === 0}>
+                    <ChevronLeft size={16} />
+                    Previous
+                  </button>
+                  <button className="primaryButton" onClick={() => moveToNextPuzzle()}>
+                    <Zap size={16} />
+                    Next puzzle
+                  </button>
+                </div>
+              </div>
+              <div className="puzzleControlBar">
+                <div className="difficultyTabs" role="tablist" aria-label="Puzzle difficulty">
+                  {(["easy", "medium", "hard"] as PuzzleDifficulty[]).map((difficulty) => (
+                    <button
+                      key={difficulty}
+                      className={puzzleDifficulty === difficulty ? "difficultyTab activeDifficultyTab" : "difficultyTab"}
+                      onClick={() => setPuzzleDifficulty(difficulty)}
+                      type="button"
+                    >
+                      {getPuzzleDifficultyLabel(difficulty)}
+                    </button>
+                  ))}
+                </div>
+                <div className="puzzleMeta">
+                  <span>{selectedPuzzle.theme}</span>
+                  <span>{selectedPuzzle.rating}</span>
+                  <span>{getPuzzleDifficultyLabel(getPuzzleDifficulty(selectedPuzzle))}</span>
+                </div>
               </div>
               <div className="puzzleTrainer">
                 <div>
@@ -4163,6 +4435,7 @@ export default function App() {
                   <div className="puzzleActions">
                     <button className="ghostButton" onClick={requestPuzzleHint}>Hint</button>
                     <button className="ghostButton" onClick={resetPuzzle}>Reset puzzle</button>
+                    <button className="ghostButton" onClick={replayPuzzleSolution}>Solution replay</button>
                   </div>
                 </div>
                 <div className="puzzlePlayBoard">
@@ -4190,7 +4463,7 @@ export default function App() {
                 </div>
               </div>
               <div className="puzzleGrid">
-                {puzzleSet.map((puzzle, index) => (
+                {filteredPuzzleEntries.map(({ puzzle, index }) => (
                   <article className={selectedPuzzleIndex === index ? "puzzleCard selectedPuzzleCard" : "puzzleCard"} key={puzzle.title}>
                     <div className="puzzleBoard">
                       {fenPreview(puzzle.fen).map((piece, index) => (
@@ -4200,13 +4473,24 @@ export default function App() {
                       ))}
                     </div>
                     <div>
-                      <span>{puzzle.theme} · {puzzle.rating}</span>
+                      <span>{puzzle.theme} · {puzzle.rating} · {getPuzzleDifficultyLabel(getPuzzleDifficulty(puzzle))}</span>
                       <h3>{puzzle.title}</h3>
                       <p>{puzzle.goal}</p>
                     </div>
                     <button className="wideButton" onClick={() => selectPuzzle(index)}>
                       {getPuzzleButtonLabel(selectedPuzzleIndex === index, isPuzzleSolved(puzzleSolved, puzzle))}
                     </button>
+                  </article>
+                ))}
+              </div>
+              <div className="booksGrid">
+                {chessBooks.slice(0, 3).map((book) => (
+                  <article className="bookCard" key={`puzzle-${book.title}`}>
+                    <span>{book.tag}</span>
+                    <h3>{book.title}</h3>
+                    <strong>{book.author}</strong>
+                    <p>{book.reason}</p>
+                    <small>{book.level}</small>
                   </article>
                 ))}
               </div>
