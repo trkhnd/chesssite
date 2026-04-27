@@ -140,6 +140,14 @@ type CommunityDetail = {
   action: string;
 };
 
+type PromotionChoice = "q" | "r" | "b" | "n";
+
+type PendingPromotion = {
+  from: Square;
+  to: Square;
+  color: "white" | "black";
+};
+
 const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
 const copy = {
@@ -608,6 +616,14 @@ function safeMove(game: Chess, from: Square, to: Square) {
   } catch {
     return null;
   }
+}
+
+function findPromotionMove(game: Chess, from: Square, to: Square) {
+  const candidate = game
+    .moves({ square: from, verbose: true })
+    .find((move) => move.to === to && Boolean(move.promotion));
+
+  return candidate ?? null;
 }
 
 function materialBalance(game: Chess) {
@@ -1448,6 +1464,7 @@ export default function App() {
   const [communityDetail, setCommunityDetail] = useState<CommunityDetail | null>(null);
   const [coachMode, setCoachMode] = useState<CoachMode>("beginner");
   const [stockfishBusy, setStockfishBusy] = useState(false);
+  const [aiThinking, setAiThinking] = useState(false);
   const [stockfishAnalysis, setStockfishAnalysis] = useState<StockfishAnalysis | null>(null);
   const [friendColor, setFriendColor] = useState<"white" | "black" | null>(null);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
@@ -1460,6 +1477,7 @@ export default function App() {
   const [statusOverride, setStatusOverride] = useState<string | null>(null);
   const [resultOverride, setResultOverride] = useState<string | null>(null);
   const [autoRotateBoard, setAutoRotateBoard] = useState(true);
+  const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const lastSavedFen = useRef("");
   const authPanelRef = useRef<HTMLDivElement | null>(null);
 
@@ -1481,7 +1499,6 @@ export default function App() {
   }, [selectedTimeControlId, customMinutes, customIncrement]);
   const activeTurn = roomState?.turn || (game.turn() === "w" ? "white" : "black");
   const boardOrientation = getBoardOrientation(mode, activeTurn, autoRotateBoard);
-  const displayedBoard = useMemo(() => (boardOrientation === "white" ? board : [...board].reverse()), [board, boardOrientation]);
   const displayStatus = useMemo(
     () =>
       getDisplayStatusLabel({
@@ -1846,6 +1863,8 @@ export default function App() {
     setFriendColor(null);
     setSelected(null);
     setLegalTargets([]);
+    setPendingPromotion(null);
+    setAiThinking(false);
     resetLocalClock(selectedTimeControl);
     syncGame(nextGame);
     openGameView();
@@ -1853,65 +1872,68 @@ export default function App() {
   }
 
   function makeAiMove(nextGame: Chess) {
+    setAiThinking(true);
     window.setTimeout(async () => {
-      if (nextGame.isGameOver() || mode !== "ai") return;
-      let aiMove: Move | null = null;
+      if (nextGame.isGameOver() || mode !== "ai") {
+        setAiThinking(false);
+        return;
+      }
 
-      if (aiLevel === "pro" && canUseStockfish()) {
-        setStockfishBusy(true);
-        const analysis = await analyzeFen(nextGame.fen(), 11);
-        setStockfishAnalysis(analysis);
-        aiMove = playUciMove(nextGame, analysis.bestMove);
+      try {
+        let aiMove: Move | null = null;
+
+        if (aiLevel === "pro" && canUseStockfish()) {
+          setStockfishBusy(true);
+          const analysis = await analyzeFen(nextGame.fen(), 11);
+          setStockfishAnalysis(analysis);
+          aiMove = playUciMove(nextGame, analysis.bestMove);
+          setStockfishBusy(false);
+        }
+
+        if (!aiMove) {
+          const fallback = chooseAiMoveWithProfile(nextGame, aiLevel);
+          if (!fallback) {
+            setToast("AI could not find a legal move, but the board is still stable.");
+            setAiThinking(false);
+            return;
+          }
+          aiMove = nextGame.move(fallback);
+        }
+
+        if (!aiMove) {
+          setToast("AI move failed. Try Analyze or Restart.");
+          setAiThinking(false);
+          return;
+        }
+
+        syncGame(nextGame);
+        applyIncrement("black");
+        setToast(makeAiThinkingText(aiLevel, aiMove));
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : "AI move failed, but your game is still safe.");
+      } finally {
         setStockfishBusy(false);
+        setAiThinking(false);
       }
-
-      if (!aiMove) {
-        const fallback = chooseAiMoveWithProfile(nextGame, aiLevel);
-        if (!fallback) return;
-        aiMove = nextGame.move(fallback);
-      }
-
-      syncGame(nextGame);
-      applyIncrement("black");
-      setToast(makeAiThinkingText(aiLevel, aiMove));
     }, aiLevel === "pro" ? 260 : 420);
   }
 
-  function handleSquareClick(square: Square) {
-    if (game.isGameOver() || resultOverride) return;
-    if (mode === "ai" && game.turn() !== "w") return;
-    if (mode === "friend") {
-      if (!friendColor) {
-        setToast("Join the room first.");
-        return;
-      }
-      if ((friendColor === "white" && game.turn() !== "w") || (friendColor === "black" && game.turn() !== "b")) {
-        setToast("Wait for your turn.");
-        return;
-      }
-    }
-
-    const piece = game.get(square);
-    const friendlyColor = mode === "friend" ? (friendColor === "white" ? "w" : "b") : "w";
-    if (!selected) {
-      if (piece && piece.color === friendlyColor) {
-        setSelected(square);
-        setLegalTargets(game.moves({ square, verbose: true }).map((move) => move.to));
-      }
-      return;
-    }
-
+  function completeMove(from: Square, to: Square, promotion: PromotionChoice = "q") {
     const nextGame = new Chess(game.fen());
-    const move = safeMove(nextGame, selected, square);
+    let move: Move | null = null;
 
+    try {
+      move = nextGame.move({ from, to, promotion });
+    } catch {
+      move = null;
+    }
+
+    setPendingPromotion(null);
     setSelected(null);
     setLegalTargets([]);
 
     if (!move) {
-      if (piece && piece.color === friendlyColor) {
-        setSelected(square);
-        setLegalTargets(game.moves({ square, verbose: true }).map((target) => target.to));
-      }
+      setToast("Move could not be completed.");
       return;
     }
 
@@ -1923,7 +1945,7 @@ export default function App() {
           roomId,
           from: move.from,
           to: move.to,
-          promotion: "q",
+          promotion,
         },
         (response: { ok: boolean; error?: string; state?: RoomState }) => {
           if (!response?.ok) {
@@ -1947,6 +1969,60 @@ export default function App() {
     if (mode === "ai") {
       makeAiMove(nextGame);
     }
+  }
+
+  function handleSquareClick(square: Square) {
+    if (game.isGameOver() || resultOverride || pendingPromotion) return;
+    if (mode === "ai" && (game.turn() !== "w" || aiThinking)) return;
+    if (mode === "friend") {
+      if (!friendColor) {
+        setToast("Join the room first.");
+        return;
+      }
+      if ((friendColor === "white" && game.turn() !== "w") || (friendColor === "black" && game.turn() !== "b")) {
+        setToast("Wait for your turn.");
+        return;
+      }
+    }
+
+    const piece = game.get(square);
+    const friendlyColor =
+      mode === "friend"
+        ? friendColor === "white"
+          ? "w"
+          : "b"
+        : mode === "local"
+          ? game.turn()
+          : "w";
+    if (!selected) {
+      if (piece && piece.color === friendlyColor) {
+        setSelected(square);
+        setLegalTargets(game.moves({ square, verbose: true }).map((move) => move.to));
+      }
+      return;
+    }
+
+    const promotionCandidate = findPromotionMove(game, selected, square);
+    if (promotionCandidate) {
+      setPendingPromotion({
+        from: selected,
+        to: square,
+        color: promotionCandidate.color === "w" ? "white" : "black",
+      });
+      return;
+    }
+
+    const movePreview = safeMove(new Chess(game.fen()), selected, square);
+    if (!movePreview) {
+      setSelected(null);
+      setLegalTargets([]);
+      if (piece && piece.color === friendlyColor) {
+        setSelected(square);
+        setLegalTargets(game.moves({ square, verbose: true }).map((target) => target.to));
+      }
+      return;
+    }
+    completeMove(selected, square);
   }
 
   function resetGame(nextMode = mode) {
@@ -3067,7 +3143,7 @@ export default function App() {
                 <div className="gameHeader">
                   <div>
                     <span className="eyebrow">{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</span>
-                    <h2>{displayStatus}</h2>
+                    <h2>{aiThinking ? "AI is thinking..." : displayStatus}</h2>
                   </div>
                   <div className="headerActions">
                     <button className="ghostButton" onClick={() => saveGame("manual")}>
@@ -3090,7 +3166,7 @@ export default function App() {
                 </div>
 
                 <div className={boardOrientation === "black" ? "board boardFlipped" : "board"} aria-label="Chess board">
-                  {displayedBoard.map(({ square, piece }, index) => {
+                  {board.map(({ square, piece }, index) => {
                     const isLight = (Math.floor(index / 8) + index) % 2 === 0;
                     const isSelected = selected === square;
                     const isTarget = legalTargets.includes(square);
@@ -3139,7 +3215,7 @@ export default function App() {
                     <Brain size={19} />
                     <h3>Coach panel</h3>
                   </div>
-                  <p>{stockfishBusy ? "Analyzing position..." : displayStatus}</p>
+                  <p>{aiThinking ? "AI is thinking. The board is locked until the black move is complete." : stockfishBusy ? "Analyzing position..." : displayStatus}</p>
                   <div className="coachActions">
                     <button className="ghostButton" onClick={analyzeNow}>{stockfishBusy ? "Analyzing..." : "Analyze again"}</button>
                     <button className="ghostButton" onClick={() => setCoachMode("beginner")}>Explain simpler</button>
@@ -3987,6 +4063,36 @@ export default function App() {
       <div className="globalToast" role="status" aria-live="polite">
         {toast}
       </div>
+
+      {pendingPromotion && (
+        <div className="modalOverlay" role="dialog" aria-modal="true">
+          <section className="quizModal promotionModal">
+            <div>
+              <span className="eyebrow">Promotion</span>
+              <h2>Choose a piece</h2>
+              <p>{pendingPromotion.color === "white" ? "White" : "Black"} reached the last rank. Pick the piece before the move is completed.</p>
+            </div>
+            <div className="promotionGrid">
+              {([
+                { id: "q", label: "Queen", icon: pendingPromotion.color === "white" ? "♕" : "♛" },
+                { id: "r", label: "Rook", icon: pendingPromotion.color === "white" ? "♖" : "♜" },
+                { id: "b", label: "Bishop", icon: pendingPromotion.color === "white" ? "♗" : "♝" },
+                { id: "n", label: "Knight", icon: pendingPromotion.color === "white" ? "♘" : "♞" },
+              ] as Array<{ id: PromotionChoice; label: string; icon: string }>).map((option) => (
+                <button
+                  key={option.id}
+                  className="promotionOption"
+                  type="button"
+                  onClick={() => completeMove(pendingPromotion.from, pendingPromotion.to, option.id)}
+                >
+                  <span>{option.icon}</span>
+                  <strong>{option.label}</strong>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
 
       {quizOpen && (
         <div className="modalOverlay" role="dialog" aria-modal="true">

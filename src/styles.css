@@ -2302,6 +2302,32 @@ h2 {
   box-shadow: 0 30px 110px rgba(0, 0, 0, 0.55);
 }
 
+.promotionModal {
+  width: min(100%, 560px);
+}
+
+.promotionGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.promotionOption {
+  display: grid;
+  gap: 8px;
+  min-height: 120px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: var(--radius);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.promotionOption span {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
 .quizModal {
   width: min(100%, 720px);
   max-height: min(86vh, 820px);
@@ -2590,7 +2616,8 @@ h2 {
 
   .timeControlOptions,
   .customTimeControl,
-  .gameActionRow {
+  .gameActionRow,
+  .promotionGrid {
     grid-template-columns: 1fr;
   }
 
