@@ -5,10 +5,11 @@ import { config } from "./config.js";
 export const SESSION_COOKIE = "cm_session";
 
 function cookieOptions() {
+  const isProduction = config.nodeEnv === "production";
   return {
     httpOnly: true,
-    secure: config.nodeEnv === "production",
-    sameSite: "lax",
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 7,
   };

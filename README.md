@@ -52,6 +52,7 @@ Create a `.env` file from `.env.example`.
 PORT=4000
 CLIENT_URL=http://localhost:5173
 SERVER_URL=http://localhost:4000
+CORS_EXTRA_ORIGINS=https://chesssite-ochre.vercel.app
 DATABASE_URL=./data/chess-master.db
 JWT_SECRET=change-me
 GOOGLE_CLIENT_ID=
@@ -61,6 +62,7 @@ EMAIL_PASS=
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=465
 EMAIL_SECURE=true
+VITE_API_URL=http://localhost:4000
 VITE_STRIPE_PAYMENT_LINK=
 ```
 
@@ -68,6 +70,9 @@ Notes:
 
 - `DATABASE_URL` can be a plain file path such as `./data/chess-master.db` or a `file:` path.
 - `JWT_SECRET` must be replaced in production.
+- `VITE_API_URL` is the frontend runtime base URL for the backend. In local development it should point to your local API, and in Vercel it should point to your deployed backend.
+- `CLIENT_URL` is the frontend origin that the backend allows for CORS and cookie auth.
+- `CORS_EXTRA_ORIGINS` can hold a comma-separated list of additional allowed frontend origins.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are optional. The frontend now uses email/password auth by default, and Google should only be re-enabled if the backend OAuth flow is configured and tested.
 - If you use Gmail SMTP, use a Gmail App Password, not your normal Gmail password.
 
@@ -111,9 +116,31 @@ npm run start:server
 - Existing users log in with email and password.
 - Passwords are hashed with `bcryptjs` before storage.
 - A signed session cookie (`cm_session`) is set by the backend and sent automatically by the browser on future requests.
+- In production, the cookie uses `SameSite=None` and `Secure=true` so a Vercel frontend can authenticate against a separately deployed backend.
 - On page refresh, the frontend calls `/api/auth/me` to restore the session.
 - Private app areas are only rendered after a valid session is present.
 - Logging out clears the session cookie and returns the user to the landing/auth screen.
+
+## API Configuration
+
+The frontend API layer reads the backend URL from `VITE_API_URL`.
+
+Examples:
+
+- local frontend -> local backend
+  - `VITE_API_URL=http://localhost:4000`
+- Vercel frontend -> Render backend
+  - `VITE_API_URL=https://your-backend.onrender.com`
+
+The frontend now builds requests like:
+
+```ts
+fetch(`${import.meta.env.VITE_API_URL}/api/auth/login`, {
+  credentials: "include",
+});
+```
+
+If `VITE_API_URL` is empty, the app falls back to same-origin relative requests for local proxy-style development.
 
 ## Available Game Modes
 
@@ -218,6 +245,48 @@ Recommended production setup:
 4. Set a strong `JWT_SECRET`.
 5. Configure Google OAuth production origins.
 6. Configure a real SMTP provider or Gmail App Password.
+
+### Deploy Frontend on Vercel
+
+Set this environment variable in Vercel:
+
+```env
+VITE_API_URL=https://your-backend-url.com
+```
+
+Then redeploy the frontend. After that, no frontend API request should point to `localhost`.
+
+### Deploy Backend on Render
+
+Suggested backend environment variables:
+
+```env
+PORT=5000
+CLIENT_URL=https://chesssite-ochre.vercel.app
+SERVER_URL=https://your-backend-url.com
+CORS_EXTRA_ORIGINS=
+DATABASE_URL=./data/chess-master.db
+JWT_SECRET=replace-this
+```
+
+Backend deployment checklist:
+
+- backend must listen on `process.env.PORT`
+- `CLIENT_URL` must match the deployed frontend origin
+- cookies require HTTPS in production
+- if you use preview deployments, add them to `CORS_EXTRA_ORIGINS`
+
+### Common Deployment Errors
+
+- `Network error`
+  - `VITE_API_URL` is missing or points to the wrong backend
+  - backend deployment is down
+- `Server unavailable`
+  - backend returned a 5xx error or could not be reached
+- auth works locally but not in production
+  - `CLIENT_URL` does not match the real frontend URL
+  - production cookies need HTTPS
+  - cross-origin deployments need `SameSite=None`
 7. Put the app behind HTTPS so secure cookies work properly.
 
 ## Current Notes

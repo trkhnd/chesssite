@@ -63,25 +63,59 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: Record<string, unknown> | string | null;
 };
 
+const API_BASE_URL = String(import.meta.env.VITE_API_URL || "")
+  .trim()
+  .replace(/\/+$/, "");
+
+function buildApiUrl(path: string) {
+  if (!API_BASE_URL) return path;
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function getFriendlyRequestError(message: string, status?: number) {
+  if (status && status >= 500) {
+    return "Server unavailable. Please try again in a moment.";
+  }
+
+  if (/Failed to fetch|NetworkError|Load failed|fetch/i.test(message)) {
+    return "Network error. Please check your connection and server URL.";
+  }
+
+  return message || "Server unavailable. Please try again in a moment.";
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-    body:
-      options.body === undefined || options.body === null
-        ? undefined
-        : typeof options.body === "string"
-          ? options.body
-          : JSON.stringify(options.body),
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(buildApiUrl(path), {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      ...options,
+      body:
+        options.body === undefined || options.body === null
+          ? undefined
+          : typeof options.body === "string"
+            ? options.body
+            : JSON.stringify(options.body),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    throw new Error(getFriendlyRequestError(message));
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || "Request failed.");
+    const message =
+      typeof data?.error === "string"
+        ? data.error
+        : typeof data?.message === "string"
+          ? data.message
+          : "";
+    throw new Error(getFriendlyRequestError(message, response.status));
   }
 
   return data as T;

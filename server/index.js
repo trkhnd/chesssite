@@ -41,8 +41,13 @@ import {
 function isAllowedOrigin(origin) {
   if (!origin) return true;
 
+  const configuredOrigins = [config.clientUrl, process.env.CORS_EXTRA_ORIGINS || "", "https://chesssite-ochre.vercel.app"]
+    .flatMap((value) => String(value).split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+
   const allowed = new Set([
-    config.clientUrl,
+    ...configuredOrigins,
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5175",
