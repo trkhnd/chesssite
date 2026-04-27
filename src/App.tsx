@@ -1575,7 +1575,7 @@ function mapUserToProfile(user: ApiUser): Profile {
 }
 
 function normalizeAuthMessage(message: string, signedIn: boolean) {
-  if (/Authentication required/i.test(message)) {
+  if (/Authentication required|Please log in/i.test(message)) {
     return signedIn ? "Session expired, please log in again." : "Please sign in to create a room.";
   }
   if (/Network error|Server unavailable/i.test(message)) {

@@ -120,7 +120,14 @@ function sendError(res, status, error) {
 }
 
 function sendUser(res, status, user) {
-  res.status(status).json({ ok: true, user, socketToken: signSocketSession(user) });
+  const sessionToken = signSession(user);
+  setSessionCookie(res, sessionToken);
+  res.status(status).json({
+    ok: true,
+    user,
+    sessionToken,
+    socketToken: signSocketSession(user),
+  });
 }
 
 app.use(
@@ -201,7 +208,6 @@ app.post("/api/auth/register", async (req, res) => {
       },
     });
 
-    setSessionCookie(res, signSession(user));
     void sendEmail({
       to: user.email,
       subject: "Welcome to Chess Master",
@@ -247,7 +253,6 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   const user = findUserById(rawUser.id);
-  setSessionCookie(res, signSession(user));
   void sendEmail({
     to: user.email,
     subject: "Chess Master sign-in",
@@ -300,7 +305,6 @@ app.post("/api/auth/google", async (req, res) => {
       city: city || "Almaty",
     });
 
-    setSessionCookie(res, signSession(result.user));
     void sendEmail({
       to: result.user.email,
       subject: result.created ? "Welcome to Chess Master" : "Chess Master sign-in",

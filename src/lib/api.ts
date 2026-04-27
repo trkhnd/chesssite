@@ -17,6 +17,7 @@ export type ApiUser = {
 
 export type SessionPayload = {
   user: ApiUser;
+  sessionToken: string;
   socketToken: string;
 };
 
@@ -71,6 +72,28 @@ type RequestOptions = Omit<RequestInit, "body"> & {
 const API_BASE_URL = String(import.meta.env.VITE_API_URL || "")
   .trim()
   .replace(/\/+$/, "");
+const SESSION_TOKEN_KEY = "cm-session-token";
+
+function getStoredSessionToken() {
+  try {
+    return localStorage.getItem(SESSION_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeSessionToken(token: string) {
+  try {
+    if (token) {
+      localStorage.setItem(SESSION_TOKEN_KEY, token);
+      return;
+    }
+
+    localStorage.removeItem(SESSION_TOKEN_KEY);
+  } catch {
+    // Ignore storage failures and continue with cookie auth only.
+  }
+}
 
 function buildApiUrl(path: string) {
   if (!API_BASE_URL) return path;
@@ -78,6 +101,12 @@ function buildApiUrl(path: string) {
 }
 
 function getFriendlyRequestError(message: string, status?: number) {
+  if (status === 401) {
+    if (/expired/i.test(message)) return "Session expired. Please log in again.";
+    if (/invalid email or password/i.test(message)) return "Invalid email or password.";
+    if (/auth/i.test(message)) return "Please log in to continue.";
+  }
+
   if (status && status >= 500) {
     return "Server unavailable. Please try again in a moment.";
   }
@@ -91,14 +120,20 @@ function getFriendlyRequestError(message: string, status?: number) {
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   let response: Response;
+  const sessionToken = getStoredSessionToken();
+  const headers = new Headers(options.headers || {});
+
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (sessionToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+  }
 
   try {
     response = await fetch(buildApiUrl(path), {
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
+      headers,
       ...options,
       body:
         options.body === undefined || options.body === null
@@ -113,6 +148,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    storeSessionToken("");
+  }
+
   if (!response.ok) {
     const message =
       typeof data?.error === "string"
@@ -132,9 +171,12 @@ export function getPublicConfig() {
 
 export async function getSession() {
   try {
-    return await request<SessionPayload>("/api/auth/me");
+    const session = await request<SessionPayload>("/api/auth/me");
+    storeSessionToken(session.sessionToken);
+    return session;
   } catch (error) {
-    if (error instanceof Error && /Authentication required|User not found/.test(error.message)) {
+    if (error instanceof Error && /Authentication required|Please log in|Session expired|User not found/.test(error.message)) {
+      storeSessionToken("");
       return null;
     }
     throw error;
@@ -146,6 +188,7 @@ export async function registerUser(payload: { name: string; email: string; passw
     method: "POST",
     body: payload,
   });
+  storeSessionToken(data.sessionToken);
   return data;
 }
 
@@ -154,6 +197,7 @@ export async function loginUser(payload: { email: string; password: string }) {
     method: "POST",
     body: payload,
   });
+  storeSessionToken(data.sessionToken);
   return data;
 }
 
@@ -162,13 +206,16 @@ export async function loginWithGoogleCode(payload: { code: string; city: string 
     method: "POST",
     body: payload,
   });
+  storeSessionToken(data.sessionToken);
   return data;
 }
 
-export function logoutUser() {
-  return request<{ ok: boolean }>("/api/auth/logout", {
+export async function logoutUser() {
+  const response = await request<{ ok: boolean }>("/api/auth/logout", {
     method: "POST",
   });
+  storeSessionToken("");
+  return response;
 }
 
 export async function patchProfile(payload: {

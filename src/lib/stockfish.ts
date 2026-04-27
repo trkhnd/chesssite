@@ -19,11 +19,20 @@ export function analyzeFen(fen: string, depth = 11): Promise<StockfishAnalysis> 
   }
 
   return new Promise((resolve) => {
+    const base = import.meta.env.BASE_URL || "/";
     const workerPath =
       typeof WebAssembly === "object"
-        ? "/stockfish/stockfish.wasm.js"
-        : "/stockfish/stockfish.js";
-    const worker = new Worker(workerPath);
+        ? `${base}stockfish/stockfish.wasm.js`
+        : `${base}stockfish/stockfish.js`;
+    let worker: Worker;
+
+    try {
+      worker = new Worker(workerPath);
+    } catch {
+      resolve({ bestMove: null, scoreCp: null, mate: null, raw: [] });
+      return;
+    }
+
     const raw: string[] = [];
     let scoreCp: number | null = null;
     let mate: number | null = null;
@@ -52,6 +61,11 @@ export function analyzeFen(fen: string, depth = 11): Promise<StockfishAnalysis> 
         window.clearTimeout(timeout);
         finish(line.split(" ")[1] || null);
       }
+    });
+
+    worker.addEventListener("error", () => {
+      window.clearTimeout(timeout);
+      finish(null);
     });
 
     worker.postMessage("uci");
