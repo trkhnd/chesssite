@@ -81,6 +81,8 @@ const corsOptions = {
     callback(new Error("CORS origin is not allowed."));
   },
   credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "PATCH", "OPTIONS"],
 };
 
 const app = express();
@@ -517,14 +519,27 @@ async function persistFinishedGame(room, moveResult) {
 io.on("connection", (socket) => {
   const session = socket.data.session;
   const user = findUserById(session.userId);
+  if (!user) {
+    socket.emit("room:error", { error: "Session expired. Please log in again." });
+    socket.disconnect(true);
+    return;
+  }
 
   socket.on("room:join", (payload, callback) => {
+    if (!payload?.roomId || typeof payload.roomId !== "string") {
+      callback?.({ ok: false, error: "Room ID is required." });
+      return;
+    }
+
     const joinResult = roomManager.joinRoom(payload.roomId, user);
     if (!joinResult.ok) {
       callback?.(joinResult);
       return;
     }
 
+    if (socket.data.roomId && socket.data.roomId !== joinResult.room.id) {
+      socket.leave(socket.data.roomId);
+    }
     socket.data.roomId = joinResult.room.id;
     socket.join(joinResult.room.id);
     io.to(joinResult.room.id).emit("room:state", roomManager.toState(joinResult.room));

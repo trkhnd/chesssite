@@ -1383,21 +1383,55 @@ function analyzeGame(history: Move[], game: Chess, analysis: StockfishAnalysis |
 
 function parseSavedGameMoves(savedGame: SavedGame) {
   const replay = new Chess();
+  let moves: Move[] = [];
+
   if (savedGame.pgn) {
-    replay.loadPgn(savedGame.pgn);
+    try {
+      replay.loadPgn(savedGame.pgn);
+      moves = replay.history({ verbose: true });
+    } catch {
+      moves = [];
+    }
   }
-  const moves = replay.history({ verbose: true });
+
+  if (moves.length === 0 && savedGame.moves.length > 0) {
+    const fallbackReplay = new Chess();
+    const rebuilt: Move[] = [];
+
+    for (const san of savedGame.moves) {
+      try {
+        const move = fallbackReplay.move(san);
+        if (!move) break;
+        rebuilt.push(move);
+      } catch {
+        break;
+      }
+    }
+
+    moves = rebuilt;
+  }
+
   const positions = [new Chess().fen()];
   const builder = new Chess();
   moves.forEach((move) => {
-    builder.move({
-      from: move.from,
-      to: move.to,
-      promotion: move.promotion || "q",
-    });
-    positions.push(builder.fen());
+    try {
+      const applied = builder.move({
+        from: move.from,
+        to: move.to,
+        promotion: move.promotion || "q",
+      });
+      if (applied) {
+        positions.push(builder.fen());
+      }
+    } catch {
+      // Stop at the last reliable position instead of crashing analysis playback.
+    }
   });
   return { moves, positions };
+}
+
+function clampAnalysisIndex(positionsLength: number, nextIndex: number) {
+  return Math.max(0, Math.min(Math.max(0, positionsLength - 1), nextIndex));
 }
 
 function getMoveQualityLabel(scoreDelta: number, move: Move, bestSan: string) {
@@ -1737,6 +1771,7 @@ export default function App() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const lastSavedFen = useRef("");
   const authPanelRef = useRef<HTMLDivElement | null>(null);
+  const lastRoomStateRef = useRef<RoomState | null>(null);
 
   const board = useMemo(() => createBoard(game), [game]);
   const capturedPieces = useMemo(() => getCapturedPieces(history), [history]);
@@ -1779,14 +1814,17 @@ export default function App() {
     () => (selectedAnalysisGame ? parseSavedGameMoves(selectedAnalysisGame) : null),
     [selectedAnalysisGame],
   );
+  const maxAnalysisIndex = analysisReplay ? Math.max(0, analysisReplay.positions.length - 1) : 0;
   const analysisPosition = useMemo(() => {
     if (!analysisReplay) return new Chess();
-    return new Chess(analysisReplay.positions[Math.min(analysisMoveIndex, analysisReplay.positions.length - 1)]);
+    return new Chess(analysisReplay.positions[clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex)]);
   }, [analysisReplay, analysisMoveIndex]);
   const analysisBoard = useMemo(() => createBoard(analysisPosition), [analysisPosition]);
   const selectedAnalysis = selectedAnalysisGameId ? analysisCache[selectedAnalysisGameId] || null : null;
   const currentAnalysisReview =
-    selectedAnalysis && analysisMoveIndex > 0 ? selectedAnalysis.moveReviews[analysisMoveIndex - 1] || null : null;
+    selectedAnalysis && analysisMoveIndex > 0
+      ? selectedAnalysis.moveReviews[clampAnalysisIndex(selectedAnalysis.moveReviews.length + 1, analysisMoveIndex) - 1] || null
+      : null;
 
   const leaderboard = useMemo(() => {
     const userStreak = savedGames.filter((savedGame) => savedGame.result === "1-0").length;
@@ -2033,7 +2071,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!profile.signedIn || !roomId) return;
+    if (!profile.signedIn || !roomId || !socketSessionToken) return;
 
     const socket = getSocket();
 
@@ -2045,9 +2083,13 @@ export default function App() {
     const handleConnectError = (error: Error) => {
       setToast(normalizeAuthMessage(error?.message || "Live room connection failed.", profile.signedIn));
     };
+    const handleRoomError = (payload: { error?: string }) => {
+      setToast(normalizeAuthMessage(payload?.error || "Live room connection failed.", profile.signedIn));
+    };
 
     socket.on("room:state", handleRoomState);
     socket.on("connect_error", handleConnectError);
+    socket.on("room:error", handleRoomError);
 
     if (!socket.connected) {
       socket.connect();
@@ -2079,14 +2121,36 @@ export default function App() {
       window.clearInterval(syncInterval);
       socket.off("room:state", handleRoomState);
       socket.off("connect_error", handleConnectError);
+      socket.off("room:error", handleRoomError);
+      socket.disconnect();
     };
-  }, [profile.signedIn, roomId]);
+  }, [profile.signedIn, roomId, socketSessionToken]);
 
   useEffect(() => {
     if (!sessionChecked || !roomId || profile.signedIn) return;
     setAuthMode("login");
+    setAuthNotice({
+      tone: "info",
+      text: "Please log in first. Chess Master will return you to the friend room automatically.",
+    });
     setToast("Please sign in to join this friend room.");
   }, [sessionChecked, roomId, profile.signedIn]);
+
+  useEffect(() => {
+    if (!roomState) {
+      lastRoomStateRef.current = null;
+      return;
+    }
+
+    const previous = lastRoomStateRef.current;
+    if (previous?.waitingForOpponent && !roomState.waitingForOpponent) {
+      setToast("Opponent joined. Game on.");
+    } else if (previous?.status !== "opponent disconnected" && roomState.status === "opponent disconnected") {
+      setToast("Opponent disconnected. The room will stay open if they come back.");
+    }
+
+    lastRoomStateRef.current = roomState;
+  }, [roomState]);
 
   useEffect(() => {
     if (!game.isGameOver() || lastSavedFen.current === game.fen()) return;
@@ -2413,13 +2477,24 @@ export default function App() {
 
   async function copyRoomLink() {
     if (!roomUrl) return;
-    await navigator.clipboard.writeText(roomUrl);
-    setToast("Room link copied.");
+    try {
+      await navigator.clipboard.writeText(roomUrl);
+      setToast("Room link copied.");
+    } catch {
+      setToast("Could not copy automatically. Copy the invite link from the room panel.");
+    }
   }
 
   function backToLobby() {
+    getSocket().disconnect();
     setView("play");
     setAnalysisOpen(false);
+    setRoomId("");
+    setRoomState(null);
+    setFriendColor(null);
+    setSelected(null);
+    setLegalTargets([]);
+    setPendingPromotion(null);
     window.history.replaceState(null, "", "/");
   }
 
@@ -2766,11 +2841,21 @@ export default function App() {
   }
 
   function openSavedGameView(savedGame: SavedGame) {
+    const replayData = parseSavedGameMoves(savedGame);
     const replay = new Chess();
-    if (savedGame.pgn) {
-      replay.loadPgn(savedGame.pgn);
-    }
-    setMode(savedGame.mode === "friend" ? "friend" : savedGame.mode === "local" ? "local" : "ai");
+    replayData.moves.forEach((move) => {
+      try {
+        replay.move({
+          from: move.from,
+          to: move.to,
+          promotion: move.promotion || "q",
+        });
+      } catch {
+        // Keep the last reliable reconstructed position.
+      }
+    });
+
+    setMode(savedGame.mode === "ai" ? "ai" : "local");
     setRoomId("");
     setRoomState(null);
     setFriendColor(null);
@@ -2779,8 +2864,13 @@ export default function App() {
     setStatusOverride(savedGame.status || null);
     setView("game");
     setAnalysisOpen(false);
+    setAnalysisMoveIndex(0);
     window.history.replaceState(null, "", gamePath());
-    setToast(`Loaded ${savedGame.mode} game from ${formatDate(savedGame.date)}.`);
+    setToast(
+      replayData.moves.length > 0
+        ? `Loaded ${savedGame.mode} game from ${formatDate(savedGame.date)}.`
+        : "This saved game has incomplete move data, so Chess Master loaded the last stable position.",
+    );
   }
 
   async function analyzeSavedGame(savedGame: SavedGame) {
@@ -2833,11 +2923,15 @@ export default function App() {
           }),
         );
 
-        walker.move({
-          from: move.from,
-          to: move.to,
-          promotion: move.promotion || "q",
-        });
+        try {
+          walker.move({
+            from: move.from,
+            to: move.to,
+            promotion: move.promotion || "q",
+          });
+        } catch {
+          break;
+        }
       }
 
       const biggestMistake = [...moveReviews]
@@ -2893,6 +2987,16 @@ export default function App() {
     setMode("friend");
     setToast(`${label} selected. Creating a live room for this community game.`);
     await createRoom();
+  }
+
+  function moveAnalysisTo(target: number) {
+    if (!analysisReplay) return;
+    setAnalysisMoveIndex(clampAnalysisIndex(analysisReplay.positions.length, target));
+  }
+
+  function stepAnalysis(offset: number) {
+    if (!analysisReplay) return;
+    setAnalysisMoveIndex((current) => clampAnalysisIndex(analysisReplay.positions.length, current + offset));
   }
 
   function selectCity(city: string) {
@@ -3850,7 +3954,7 @@ export default function App() {
                           <strong>{selectedAnalysisGame.opponent || "Training opponent"}</strong>
                         </div>
                         <div className="analysisMiniStats">
-                          <span>Move {Math.min(analysisMoveIndex, analysisReplay.moves.length)} / {analysisReplay.moves.length}</span>
+                          <span>Move {Math.min(clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex), analysisReplay.moves.length)} / {analysisReplay.moves.length}</span>
                           <span>{selectedAnalysis?.summary.accuracy ? `${selectedAnalysis.summary.accuracy}% accuracy` : analysisPending ? "Analyzing..." : "Review pending"}</span>
                         </div>
                       </div>
@@ -3880,18 +3984,18 @@ export default function App() {
                       </div>
 
                       <div className="analysisControls">
-                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex(0)} disabled={analysisMoveIndex === 0}>
+                        <button className="ghostButton" onClick={() => moveAnalysisTo(0)} disabled={analysisMoveIndex === 0}>
                           Jump to start
                         </button>
-                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex((current) => Math.max(0, current - 1))} disabled={analysisMoveIndex === 0}>
+                        <button className="ghostButton" onClick={() => stepAnalysis(-1)} disabled={analysisMoveIndex === 0}>
                           <ChevronLeft size={16} />
                           Previous
                         </button>
-                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex((current) => Math.min(analysisReplay.moves.length, current + 1))} disabled={analysisMoveIndex >= analysisReplay.moves.length}>
+                        <button className="ghostButton" onClick={() => stepAnalysis(1)} disabled={analysisMoveIndex >= maxAnalysisIndex}>
                           Next
                           <ChevronRight size={16} />
                         </button>
-                        <button className="ghostButton" onClick={() => setAnalysisMoveIndex(analysisReplay.moves.length)} disabled={analysisMoveIndex >= analysisReplay.moves.length}>
+                        <button className="ghostButton" onClick={() => moveAnalysisTo(maxAnalysisIndex)} disabled={analysisMoveIndex >= maxAnalysisIndex}>
                           Jump to end
                         </button>
                       </div>
@@ -3908,7 +4012,7 @@ export default function App() {
                             <button
                               key={`analysis-move-${index}-${move.san}`}
                               className={analysisMoveIndex === index + 1 ? "analysisMoveButton activeAnalysisMove" : "analysisMoveButton"}
-                              onClick={() => setAnalysisMoveIndex(index + 1)}
+                              onClick={() => moveAnalysisTo(index + 1)}
                             >
                               <span>{index % 2 === 0 ? `${Math.floor(index / 2) + 1}.` : "..."}</span>
                               <strong>{move.san}</strong>
