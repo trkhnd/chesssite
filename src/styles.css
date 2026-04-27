@@ -426,7 +426,7 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
   gap: 14px;
-  min-height: calc(100vh - 128px);
+  min-height: 0;
   padding: 14px 0;
 }
 
@@ -916,6 +916,141 @@ h2 {
   gap: 14px;
 }
 
+.playLobby,
+.gamePage {
+  display: grid;
+  gap: 14px;
+}
+
+.playModeGrid,
+.booksGrid,
+.communityClubGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.playModeCard,
+.bookCard,
+.clubCard,
+.timeControlPanel,
+.gameBoardShell,
+.gameSideRail,
+.coachBulletPanel > div {
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.playModeCard,
+.bookCard,
+.clubCard {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.activePlayMode {
+  border-color: color-mix(in srgb, var(--gold) 46%, transparent);
+  background: linear-gradient(135deg, rgba(127, 166, 80, 0.22), rgba(214, 169, 74, 0.1));
+}
+
+.timeControlPanel,
+.gameBoardShell,
+.gameSideRail {
+  display: grid;
+  gap: 14px;
+}
+
+.timeControlGroups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.timeControlOptions,
+.customTimeControl,
+.playSupportGrid,
+.gameActionRow,
+.coachActions {
+  display: grid;
+  gap: 10px;
+}
+
+.timeControlOptions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.customTimeControl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.customTimeControl label {
+  display: grid;
+  gap: 6px;
+}
+
+.customTimeControl input {
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: var(--radius);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  padding: 0 10px;
+}
+
+.timeCard {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: var(--radius);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  text-align: left;
+}
+
+.activeTimeCard {
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  background: linear-gradient(135deg, rgba(127, 166, 80, 0.24), rgba(214, 169, 74, 0.1));
+}
+
+.timeSummaryBar,
+.timerStack,
+.recentGameRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.timeSummaryBar {
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.playSupportGrid {
+  grid-template-columns: 1.15fr 0.85fr;
+}
+
+.recentGames {
+  display: grid;
+  gap: 8px;
+}
+
+.recentGameRow {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.gamePage {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  align-items: start;
+}
+
 .boardStage,
 .sidePanel,
 .dashboardView {
@@ -955,8 +1090,8 @@ h2 {
 
 .board {
   display: grid;
-  width: min(100%, 620px);
-  max-width: calc(100vh - 245px);
+  width: min(100%, min(90vw, 760px));
+  max-width: min(100%, calc(100vh - 230px));
   min-width: 280px;
   aspect-ratio: 1;
   grid-template-columns: repeat(8, 1fr);
@@ -966,6 +1101,16 @@ h2 {
   border: 10px solid color-mix(in srgb, currentColor 10%, transparent);
   border-radius: var(--radius);
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+  transition: transform 220ms ease;
+}
+
+.boardFlipped {
+  transform: rotate(180deg);
+}
+
+.boardFlipped .piece,
+.boardFlipped .coord {
+  transform: rotate(180deg);
 }
 
 .square {
@@ -1196,7 +1341,73 @@ h2 {
 }
 
 .dashboardView {
-  min-height: 650px;
+  min-height: 0;
+}
+
+.timerStack {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(127, 166, 80, 0.16), rgba(214, 169, 74, 0.08));
+}
+
+.timerStack strong {
+  display: block;
+  margin-top: 4px;
+  font-size: clamp(1.7rem, 4vw, 2.3rem);
+}
+
+.gameActionRow {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gameActionRow button,
+.coachActions button,
+.clubCard .wideButton,
+.playModeCard .wideButton {
+  width: 100%;
+  justify-content: center;
+}
+
+.coachBulletPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.coachBulletPanel p {
+  margin: 6px 0 0;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  line-height: 1.5;
+}
+
+.bookCard span,
+.clubCard span {
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.bookCard p,
+.clubCard p,
+.clubCard strong,
+.clubMeta span {
+  color: color-mix(in srgb, currentColor 74%, transparent);
+  line-height: 1.5;
+}
+
+.clubMeta {
+  display: grid;
+  gap: 4px;
+}
+
+.compactClubGrid,
+.compactBooksGrid {
+  grid-template-columns: 1fr;
+}
+
+.compactEmpty {
+  min-height: 120px;
 }
 
 .reviewRing {
@@ -2220,6 +2431,7 @@ h2 {
   .welcomeGate,
   .productShell,
   .playGrid,
+  .gamePage,
   .heroPanel,
   .puzzleTrainer {
     grid-template-columns: 1fr;
@@ -2231,6 +2443,9 @@ h2 {
   .missionGrid,
   .puzzleGrid,
   .communityGrid,
+  .playModeGrid,
+  .booksGrid,
+  .communityClubGrid,
   .communityWisdom,
   .reportLinks,
   .youtubeGrid,
@@ -2252,11 +2467,16 @@ h2 {
   .momentumBoard p {
     grid-column: 1 / -1;
   }
+
+  .timeControlGroups,
+  .playSupportGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
   .app {
-    padding: 12px;
+    padding: 12px 12px 86px;
   }
 
   .topbar {
@@ -2280,18 +2500,23 @@ h2 {
   }
 
   .navPanel {
-    display: none;
-  }
-
-  .productShell.navOpen .navPanel {
     display: block;
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 24;
+    padding: 10px;
+    background: rgba(17, 23, 21, 0.92);
+    backdrop-filter: blur(14px);
   }
 
   .navList {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .navList button {
+    min-height: 52px;
     justify-content: center;
     padding: 0 8px;
     font-size: 0.86rem;
@@ -2301,10 +2526,18 @@ h2 {
     display: none;
   }
 
+  .profileCard,
+  .miniStats,
+  .quizNavButton {
+    display: none;
+  }
+
   .mainStage,
   .boardStage,
   .sidePanel,
-  .dashboardView {
+  .dashboardView,
+  .gameBoardShell,
+  .gameSideRail {
     padding: 10px;
   }
 
@@ -2324,6 +2557,9 @@ h2 {
   .momentumBoard,
   .puzzleGrid,
   .communityGrid,
+  .playModeGrid,
+  .booksGrid,
+  .communityClubGrid,
   .communityWisdom,
   .reportLinks,
   .youtubeGrid,
@@ -2340,7 +2576,9 @@ h2 {
   .gameHeader,
   .sectionHeader,
   .coachHeaderActions,
-  .academyHero {
+  .academyHero,
+  .timeSummaryBar,
+  .timerStack {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -2348,6 +2586,17 @@ h2 {
   .headerActions {
     width: 100%;
     align-items: stretch;
+  }
+
+  .timeControlOptions,
+  .customTimeControl,
+  .gameActionRow {
+    grid-template-columns: 1fr;
+  }
+
+  .board {
+    width: min(100%, 92vw);
+    max-width: min(92vw, calc(100vh - 280px));
   }
 
   .leaderRow {

@@ -40,6 +40,19 @@ export type RoomState = {
   isCheckmate: boolean;
   isDraw: boolean;
   waitingForOpponent: boolean;
+  finished: boolean;
+  timeoutWinner: "white" | "black" | null;
+  timeControl: {
+    id: string;
+    label: string;
+    category: string;
+    minutes: number;
+    incrementSeconds: number;
+  };
+  remainingMs: {
+    white: number;
+    black: number;
+  };
   players: {
     white: RoomPlayer;
     black: RoomPlayer | null;
@@ -147,10 +160,18 @@ export function saveHistory(payload: Record<string, unknown>) {
   });
 }
 
-export async function createFriendRoom() {
+export async function createFriendRoom(payload: {
+  timeControl?: {
+    id: string;
+    label: string;
+    category: string;
+    minutes: number;
+    incrementSeconds: number;
+  };
+}) {
   const data = await request<{ roomId: string; url: string; state: RoomState }>("/api/rooms", {
     method: "POST",
-    body: {},
+    body: payload,
   });
   return data;
 }

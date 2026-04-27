@@ -342,7 +342,7 @@ app.post("/api/history", requireAuth, (req, res) => {
 
 app.post("/api/rooms", requireAuth, (req, res) => {
   const user = findUserById(req.session.userId);
-  const room = roomManager.createRoom(user);
+  const room = roomManager.createRoom(user, req.body || {});
   res.status(201).json({
     roomId: room.id,
     url: `${config.clientUrl}/play/room/${room.id}`,
@@ -516,6 +516,42 @@ io.on("connection", (socket) => {
 
     if (moveResult.finished) {
       await persistFinishedGame(moveResult.room, moveResult);
+    }
+  });
+
+  socket.on("room:sync", (payload, callback) => {
+    const result = roomManager.syncRoom(payload.roomId);
+    if (!result.ok) {
+      callback?.(result);
+      return;
+    }
+    io.to(result.room.id).emit("room:state", roomManager.toState(result.room));
+    callback?.({ ok: true, state: roomManager.toState(result.room) });
+  });
+
+  socket.on("room:resign", async (payload, callback) => {
+    const result = roomManager.resign(payload.roomId, user.id);
+    if (!result.ok) {
+      callback?.(result);
+      return;
+    }
+    io.to(result.room.id).emit("room:state", roomManager.toState(result.room));
+    callback?.({ ok: true, state: roomManager.toState(result.room) });
+    if (result.finished) {
+      await persistFinishedGame(result.room, result);
+    }
+  });
+
+  socket.on("room:draw", async (payload, callback) => {
+    const result = roomManager.draw(payload.roomId);
+    if (!result.ok) {
+      callback?.(result);
+      return;
+    }
+    io.to(result.room.id).emit("room:state", roomManager.toState(result.room));
+    callback?.({ ok: true, state: roomManager.toState(result.room) });
+    if (result.finished) {
+      await persistFinishedGame(result.room, result);
     }
   });
 

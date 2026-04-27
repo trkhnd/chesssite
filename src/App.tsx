@@ -60,11 +60,20 @@ type BoardSquare = {
 };
 
 type GameMode = "ai" | "friend";
+type LocalGameMode = "ai" | "friend" | "local";
 type AiLevel = "easy" | "medium" | "pro";
 type CoachMode = "beginner" | "intermediate" | "advanced";
 type ThemeName = "classic" | "midnight" | "royal" | "carbon";
 type Language = "en" | "ru";
-type View = "home" | "play" | "puzzles" | "learn" | "coach" | "history" | "community" | "leaderboard" | "pro";
+type View = "home" | "play" | "game" | "puzzles" | "learn" | "coach" | "history" | "community" | "leaderboard" | "pro";
+
+type TimeControl = {
+  id: string;
+  label: string;
+  category: "Bullet" | "Blitz" | "Rapid" | "Classical" | "Custom";
+  minutes: number;
+  incrementSeconds: number;
+};
 
 type Profile = {
   id?: string;
@@ -93,7 +102,7 @@ type AuthFieldErrors = Partial<Record<keyof AuthFormState, string>> & {
 type SavedGame = {
   id: string;
   date: string;
-  mode: GameMode;
+  mode: LocalGameMode;
   result: string;
   moves: string[];
   pgn: string;
@@ -254,6 +263,37 @@ const aiProfiles: Record<AiLevel, { name: string; rating: number; style: string;
     depth: "Stockfish depth 11",
   },
 };
+
+const timeControlGroups: Array<{ category: TimeControl["category"]; options: TimeControl[] }> = [
+  {
+    category: "Bullet",
+    options: [
+      { id: "bullet-1-0", label: "1+0", category: "Bullet", minutes: 1, incrementSeconds: 0 },
+      { id: "bullet-2-1", label: "2+1", category: "Bullet", minutes: 2, incrementSeconds: 1 },
+    ],
+  },
+  {
+    category: "Blitz",
+    options: [
+      { id: "blitz-3-0", label: "3+0", category: "Blitz", minutes: 3, incrementSeconds: 0 },
+      { id: "blitz-3-2", label: "3+2", category: "Blitz", minutes: 3, incrementSeconds: 2 },
+      { id: "blitz-5-0", label: "5+0", category: "Blitz", minutes: 5, incrementSeconds: 0 },
+    ],
+  },
+  {
+    category: "Rapid",
+    options: [
+      { id: "rapid-10-0", label: "10+0", category: "Rapid", minutes: 10, incrementSeconds: 0 },
+      { id: "rapid-15-10", label: "15+10", category: "Rapid", minutes: 15, incrementSeconds: 10 },
+    ],
+  },
+  {
+    category: "Classical",
+    options: [{ id: "classical-30-0", label: "30+0", category: "Classical", minutes: 30, incrementSeconds: 0 }],
+  },
+];
+
+const defaultTimeControl: TimeControl = { id: "rapid-10-0", label: "10+0", category: "Rapid", minutes: 10, incrementSeconds: 0 };
 
 const starterLeaderboard = [
   { name: "Aruzhan", city: "Almaty", rating: 1840, streak: 9, winRate: 64, title: "CM" },
@@ -502,7 +542,41 @@ const cityStats = [
   { city: "Almaty", players: 2480, avg: 1320, active: 312 },
   { city: "Astana", players: 1910, avg: 1295, active: 224 },
   { city: "Shymkent", players: 1080, avg: 1210, active: 146 },
+  { city: "Karaganda", players: 860, avg: 1188, active: 118 },
+  { city: "Aktobe", players: 740, avg: 1150, active: 92 },
 ];
+
+const chessBooks = [
+  { title: "Bobby Fischer Teaches Chess", author: "Bobby Fischer", level: "Beginner", reason: "A direct pattern-building book for mates, tactics, and calculation discipline.", tag: "tactics" },
+  { title: "My System", author: "Aron Nimzowitsch", level: "Intermediate", reason: "Teaches prophylaxis, blockades, pawn chains, and long-term positional thinking.", tag: "strategy" },
+  { title: "Logical Chess: Move by Move", author: "Irving Chernev", level: "Beginner", reason: "Explains each move in plain language, which is ideal for learning plans.", tag: "strategy" },
+  { title: "The Soviet Chess Primer", author: "Ilya Maizelis", level: "Beginner", reason: "A structured foundation covering tactics, endgames, and core planning habits.", tag: "openings" },
+  { title: "Silman’s Complete Endgame Course", author: "Jeremy Silman", level: "Intermediate", reason: "A practical step-by-step route through the endgames players actually need.", tag: "endgame" },
+  { title: "How to Reassess Your Chess", author: "Jeremy Silman", level: "Advanced", reason: "Sharpens imbalances, planning, and positional decision-making.", tag: "calculation" },
+];
+
+const cityClubSuggestions: Record<string, Array<{ name: string; address: string; hours: string; level: string; description: string; query: string; contact: string }>> = {
+  Almaty: [
+    { name: "Almaty Chess Circle", address: "Suggested 2GIS search · Abay Ave / Baitursynov area", hours: "Daily 10:00-22:00", level: "Beginner friendly", description: "Good for casual rapid sessions, beginner sparring, and after-work study games.", query: "шахматный клуб Алматы", contact: "Instagram / phone via 2GIS listing" },
+    { name: "Esentai Rapid Club", address: "Suggested 2GIS search · Al-Farabi Ave area", hours: "Mon-Sat 12:00-21:00", level: "Competitive", description: "A stronger-player style suggestion for blitz nights, club ladders, and coach sessions.", query: "chess club Almaty", contact: "Message the club after opening the 2GIS search" },
+  ],
+  Astana: [
+    { name: "Astana Chess Hub", address: "Suggested 2GIS search · Mangilik El Ave area", hours: "Daily 11:00-21:00", level: "Adults", description: "A practical option for rapid evenings, local meetups, and tournament preparation.", query: "шахматный клуб Астана", contact: "Check 2GIS for working contacts" },
+    { name: "Capital Junior & Open Chess", address: "Suggested 2GIS search · Turan Ave area", hours: "Mon-Fri 09:00-20:00", level: "Kids", description: "Suitable for structured lessons, scholastic groups, and parent-friendly schedules.", query: "chess club Astana", contact: "School desk or listed club manager in 2GIS" },
+  ],
+  Shymkent: [
+    { name: "Shymkent Chess Point", address: "Suggested 2GIS search · Tauke Khan Ave area", hours: "Daily 10:00-20:00", level: "Adults", description: "A community-style place for friendly rapid matches and steady training blocks.", query: "шахматный клуб Шымкент", contact: "See 2GIS search results" },
+    { name: "South Tactics Studio", address: "Suggested 2GIS search · Respublika Ave area", hours: "Tue-Sun 12:00-21:00", level: "Competitive", description: "Useful for players who want sharper tactical sparring and weekend mini-events.", query: "chess club Shymkent", contact: "Use 2GIS contact card" },
+  ],
+  Karaganda: [
+    { name: "Karaganda Chess League", address: "Suggested 2GIS search · Bukhar-Zhyrau Ave area", hours: "Mon-Sat 11:00-20:00", level: "Competitive", description: "Club-style atmosphere for rated-style training games and opening prep nights.", query: "шахматный клуб Караганда", contact: "Club page via 2GIS" },
+    { name: "Central Board Room", address: "Suggested 2GIS search · Nurken Abdirov Ave area", hours: "Daily 10:00-21:00", level: "Beginner friendly", description: "A calmer learning environment with puzzle corners and casual rapid sessions.", query: "chess club Karaganda", contact: "Look up the current listing in 2GIS" },
+  ],
+  Aktobe: [
+    { name: "Aktobe Chess Room", address: "Suggested 2GIS search · Abilkair Khan Ave area", hours: "Daily 11:00-20:00", level: "Adults", description: "A flexible local option for evening games, coach reviews, and ladder challenges.", query: "шахматный клуб Актобе", contact: "See 2GIS for active contact details" },
+    { name: "West Kazakhstan Junior Chess", address: "Suggested 2GIS search · Sanken Nursylova area", hours: "Mon-Fri 09:00-19:00", level: "Kids", description: "More education-oriented, with junior groups and family-friendly hours.", query: "chess club Aktobe", contact: "2GIS listing or club social page" },
+  ],
+};
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -900,7 +974,7 @@ function getLearnHeroText(progress: Record<string, number>) {
 function getCoachEmptyText(history: Move[]) {
   return history.length === 0
     ? "Start a game first. Coach analysis becomes useful after you make moves."
-    : explainMove(new Chess(), []);
+    : "Coach fallback is active. Focus on king safety, center control, and piece development before forcing tactics.";
 }
 
 function getHistoryScoreLabel(score: number | null) {
@@ -1246,6 +1320,78 @@ function roomPath(roomId: string) {
   return `/play/room/${roomId.toUpperCase()}`;
 }
 
+function gamePath() {
+  return "/play/game";
+}
+
+function isGamePath() {
+  return window.location.pathname === "/play/game";
+}
+
+function makeTimeControl(minutes: number, incrementSeconds: number): TimeControl {
+  return {
+    id: `custom-${minutes}-${incrementSeconds}`,
+    label: `${minutes}+${incrementSeconds}`,
+    category: "Custom",
+    minutes,
+    incrementSeconds,
+  };
+}
+
+function formatClock(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getTimeControlTitle(control: { category: string; label: string }) {
+  return `${control.category} ${control.label}`;
+}
+
+function getModeLabel(mode: LocalGameMode) {
+  if (mode === "friend") return "Play vs friend online";
+  if (mode === "local") return "Play on one device";
+  return "Play vs AI";
+}
+
+function getBoardOrientation(mode: LocalGameMode, turn: "white" | "black", autoRotate: boolean) {
+  if (mode === "local" && autoRotate) {
+    return turn === "white" ? "white" : "black";
+  }
+  return "white";
+}
+
+function getDisplayStatusLabel(params: {
+  game: Chess;
+  mode: LocalGameMode;
+  roomState: RoomState | null;
+  resultOverride: string | null;
+  statusOverride: string | null;
+}) {
+  if (params.mode === "friend" && params.roomState) {
+    const state = params.roomState;
+    if (state.finished && state.timeoutWinner) {
+      return state.timeoutWinner === "white" ? "White wins on time" : "Black wins on time";
+    }
+    return state.status;
+  }
+
+  if (params.resultOverride === "1/2-1/2") return params.statusOverride || "Draw agreed";
+  if (params.resultOverride === "1-0" && params.statusOverride?.includes("time")) return "White wins on time";
+  if (params.resultOverride === "0-1" && params.statusOverride?.includes("time")) return "Black wins on time";
+  if (params.statusOverride) return params.statusOverride;
+  return getStatus(params.game);
+}
+
+function getClubSuggestions(city: string) {
+  return cityClubSuggestions[city] ?? cityClubSuggestions.Almaty;
+}
+
+function get2gisSearchUrl(query: string) {
+  return `https://2gis.kz/search/${encodeURIComponent(query)}`;
+}
+
 function mapUserToProfile(user: ApiUser): Profile {
   return {
     id: user.id,
@@ -1268,9 +1414,12 @@ export default function App() {
   const [history, setHistory] = useState<Move[]>([]);
   const [theme, setTheme] = useState<ThemeName>(() => normalizeTheme(loadJson("cm-theme", "midnight")));
   const [language, setLanguage] = useState<Language>(() => loadJson("cm-language", "en"));
-  const [view, setView] = useState<View>(initialRoomId ? "play" : "home");
-  const [mode, setMode] = useState<GameMode>(initialRoomId ? "friend" : "ai");
+  const [view, setView] = useState<View>(initialRoomId || isGamePath() ? "game" : "home");
+  const [mode, setMode] = useState<LocalGameMode>(initialRoomId ? "friend" : "ai");
   const [aiLevel, setAiLevel] = useState<AiLevel>(() => loadJson("cm-ai-level", "medium"));
+  const [selectedTimeControlId, setSelectedTimeControlId] = useState(() => loadJson("cm-time-control-id", defaultTimeControl.id));
+  const [customMinutes, setCustomMinutes] = useState(() => loadJson("cm-custom-minutes", 12));
+  const [customIncrement, setCustomIncrement] = useState(() => loadJson("cm-custom-increment", 5));
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [savedGames, setSavedGames] = useState<SavedGame[]>(() => loadJson("cm-games", []));
   const [roomId, setRoomId] = useState(initialRoomId);
@@ -1306,6 +1455,11 @@ export default function App() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [whiteTimeMs, setWhiteTimeMs] = useState(defaultTimeControl.minutes * 60 * 1000);
+  const [blackTimeMs, setBlackTimeMs] = useState(defaultTimeControl.minutes * 60 * 1000);
+  const [statusOverride, setStatusOverride] = useState<string | null>(null);
+  const [resultOverride, setResultOverride] = useState<string | null>(null);
+  const [autoRotateBoard, setAutoRotateBoard] = useState(true);
   const lastSavedFen = useRef("");
   const authPanelRef = useRef<HTMLDivElement | null>(null);
 
@@ -1321,6 +1475,25 @@ export default function App() {
   const dynamicCoachTimeline = useMemo(() => getCoachTimeline(history, game), [history, game]);
   const roomList = useMemo(() => getRoomList(profile), [profile]);
   const courseCompletion = useMemo(() => getCourseCompletion(lessonProgress), [lessonProgress]);
+  const selectedTimeControl = useMemo(() => {
+    const preset = timeControlGroups.flatMap((group) => group.options).find((option) => option.id === selectedTimeControlId);
+    return preset ?? makeTimeControl(customMinutes, customIncrement);
+  }, [selectedTimeControlId, customMinutes, customIncrement]);
+  const activeTurn = roomState?.turn || (game.turn() === "w" ? "white" : "black");
+  const boardOrientation = getBoardOrientation(mode, activeTurn, autoRotateBoard);
+  const displayedBoard = useMemo(() => (boardOrientation === "white" ? board : [...board].reverse()), [board, boardOrientation]);
+  const displayStatus = useMemo(
+    () =>
+      getDisplayStatusLabel({
+        game,
+        mode,
+        roomState,
+        resultOverride,
+        statusOverride,
+      }),
+    [game, mode, roomState, resultOverride, statusOverride],
+  );
+  const communityClubs = useMemo(() => getClubSuggestions(profile.city), [profile.city]);
   const t = (key: keyof typeof copy.en) => copy[language][key] ?? copy.en[key];
 
   const leaderboard = useMemo(() => {
@@ -1443,6 +1616,18 @@ export default function App() {
   }, [aiLevel]);
 
   useEffect(() => {
+    localStorage.setItem("cm-time-control-id", JSON.stringify(selectedTimeControlId));
+  }, [selectedTimeControlId]);
+
+  useEffect(() => {
+    localStorage.setItem("cm-custom-minutes", JSON.stringify(customMinutes));
+  }, [customMinutes]);
+
+  useEffect(() => {
+    localStorage.setItem("cm-custom-increment", JSON.stringify(customIncrement));
+  }, [customIncrement]);
+
+  useEffect(() => {
     localStorage.setItem("cm-lesson-progress", JSON.stringify(lessonProgress));
   }, [lessonProgress]);
 
@@ -1509,10 +1694,17 @@ export default function App() {
   useEffect(() => {
     const handlePopState = () => {
       const nextRoomId = getRoomIdFromLocation();
-      if (!nextRoomId) return;
-      setRoomId(nextRoomId);
-      setView("play");
-      setMode("friend");
+      if (nextRoomId) {
+        setRoomId(nextRoomId);
+        setView("game");
+        setMode("friend");
+        return;
+      }
+      if (isGamePath()) {
+        setView("game");
+        return;
+      }
+      setView("home");
     };
 
     window.addEventListener("popstate", handlePopState);
@@ -1551,14 +1743,19 @@ export default function App() {
 
         setFriendColor(response.color || null);
         setMode("friend");
-        setView("play");
+        setView("game");
         setRoomState(response.state);
         syncGame(new Chess(response.state.fen));
         setToast(response.state.waitingForOpponent ? "Room created. Waiting for opponent." : "Friend room connected.");
       },
     );
 
+    const syncInterval = window.setInterval(() => {
+      socket.emit("room:sync", { roomId }, () => undefined);
+    }, 1000);
+
     return () => {
+      window.clearInterval(syncInterval);
       socket.off("room:state", handleRoomState);
       socket.off("connect_error", handleConnectError);
     };
@@ -1570,9 +1767,89 @@ export default function App() {
     saveGame("auto");
   }, [game]);
 
+  useEffect(() => {
+    if (mode !== "friend" || !roomState) return;
+    setWhiteTimeMs(roomState.remainingMs.white);
+    setBlackTimeMs(roomState.remainingMs.black);
+    if (roomState.finished && roomState.timeoutWinner) {
+      setStatusOverride(roomState.timeoutWinner === "white" ? "White wins on time" : "Black wins on time");
+      setResultOverride(roomState.timeoutWinner === "white" ? "1-0" : "0-1");
+    } else if (roomState.finished) {
+      setStatusOverride(roomState.status);
+      setResultOverride(roomState.result);
+    }
+  }, [mode, roomState]);
+
+  useEffect(() => {
+    if (view !== "game" || mode === "friend") return;
+    if (resultOverride || game.isGameOver()) return;
+
+    const interval = window.setInterval(() => {
+      if (game.turn() === "w") {
+        setWhiteTimeMs((current) => {
+          const next = Math.max(0, current - 250);
+          if (next === 0) {
+            setResultOverride("0-1");
+            setStatusOverride("Black wins on time");
+          }
+          return next;
+        });
+      } else {
+        setBlackTimeMs((current) => {
+          const next = Math.max(0, current - 250);
+          if (next === 0) {
+            setResultOverride("1-0");
+            setStatusOverride("White wins on time");
+          }
+          return next;
+        });
+      }
+    }, 250);
+
+    return () => window.clearInterval(interval);
+  }, [view, mode, game, resultOverride]);
+
   function syncGame(nextGame: Chess) {
     setGame(new Chess(nextGame.fen()));
     setHistory(nextGame.history({ verbose: true }));
+  }
+
+  function resetLocalClock(control = selectedTimeControl) {
+    const startingMs = control.minutes * 60 * 1000;
+    setWhiteTimeMs(startingMs);
+    setBlackTimeMs(startingMs);
+    setStatusOverride(null);
+    setResultOverride(null);
+  }
+
+  function applyIncrement(color: "white" | "black", control = selectedTimeControl) {
+    const increment = control.incrementSeconds * 1000;
+    if (!increment) return;
+    if (color === "white") {
+      setWhiteTimeMs((current) => current + increment);
+      return;
+    }
+    setBlackTimeMs((current) => current + increment);
+  }
+
+  function openGameView(path = gamePath()) {
+    setView("game");
+    window.history.replaceState(null, "", path);
+  }
+
+  function startGame(nextMode: LocalGameMode) {
+    const nextGame = new Chess();
+    lastSavedFen.current = "";
+    setMode(nextMode);
+    setRoomId("");
+    setRoomState(null);
+    setFriendColor(null);
+    setSelected(null);
+    setLegalTargets([]);
+    resetLocalClock(selectedTimeControl);
+    syncGame(nextGame);
+    openGameView();
+    setToast(`${getModeLabel(nextMode)} started · ${getTimeControlTitle(selectedTimeControl)}.`);
   }
 
   function makeAiMove(nextGame: Chess) {
@@ -1595,12 +1872,13 @@ export default function App() {
       }
 
       syncGame(nextGame);
+      applyIncrement("black");
       setToast(makeAiThinkingText(aiLevel, aiMove));
     }, aiLevel === "pro" ? 260 : 420);
   }
 
   function handleSquareClick(square: Square) {
-    if (game.isGameOver()) return;
+    if (game.isGameOver() || resultOverride) return;
     if (mode === "ai" && game.turn() !== "w") return;
     if (mode === "friend") {
       if (!friendColor) {
@@ -1662,9 +1940,13 @@ export default function App() {
       return;
     }
 
+    const movingColor = move.color === "w" ? "white" : "black";
     syncGame(nextGame);
+    applyIncrement(movingColor);
     setToast(`${move.san}: ${getMoveFeedback(move, coachMode)}`);
-    makeAiMove(nextGame);
+    if (mode === "ai") {
+      makeAiMove(nextGame);
+    }
   }
 
   function resetGame(nextMode = mode) {
@@ -1673,19 +1955,7 @@ export default function App() {
       return;
     }
 
-    const nextGame = new Chess();
-    lastSavedFen.current = "";
-    setMode(nextMode);
-    setRoomId("");
-    setRoomState(null);
-    setFriendColor(null);
-    setSelected(null);
-    setLegalTargets([]);
-    if (window.location.pathname.startsWith("/play/room/")) {
-      window.history.replaceState(null, "", "/");
-    }
-    setToast(nextMode === "ai" ? `New game vs ${getAiLabel(aiLevel)} started.` : "Friend room board reset.");
-    syncGame(nextGame);
+    startGame(nextMode);
   }
 
   function saveGame(source: "auto" | "manual") {
@@ -1694,7 +1964,7 @@ export default function App() {
       id: crypto.randomUUID(),
       date: now,
       mode,
-      result: getResult(game),
+      result: resultOverride || getResult(game),
       moves: history.map((move) => move.san),
       pgn: game.pgn(),
       coach: coachReport,
@@ -1706,7 +1976,7 @@ export default function App() {
       void saveHistory({
         mode,
         result: saved.result,
-        status: game.isGameOver() ? getStatus(game) : "saved",
+        status: statusOverride || (game.isGameOver() ? getStatus(game) : "saved"),
         pgn: saved.pgn,
         fen: game.fen(),
         summary: `${getReviewLabel(reviewScore)} review saved from the ${mode} board.`,
@@ -1718,14 +1988,15 @@ export default function App() {
   async function createRoom() {
     try {
       setRoomBusy(true);
-      const room = await createFriendRoom();
+      const room = await createFriendRoom({ timeControl: selectedTimeControl });
       setRoomId(room.roomId);
       setMode("friend");
       setFriendColor("white");
       setRoomState(room.state);
-      window.history.replaceState(null, "", roomPath(room.roomId));
+      resetLocalClock(selectedTimeControl);
+      openGameView(roomPath(room.roomId));
       syncGame(new Chess(room.state.fen));
-      setToast("Friend room created. Share the link and wait for black to join.");
+      setToast(`Friend room created · ${getTimeControlTitle(selectedTimeControl)}. Share the link and wait for black to join.`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Failed to create room.");
     } finally {
@@ -1737,6 +2008,70 @@ export default function App() {
     if (!roomUrl) return;
     await navigator.clipboard.writeText(roomUrl);
     setToast("Room link copied.");
+  }
+
+  function backToLobby() {
+    setView("play");
+    if (!roomId) {
+      window.history.replaceState(null, "", "/");
+    }
+  }
+
+  function restartCurrentGame() {
+    if (mode === "friend") {
+      void createRoom();
+      return;
+    }
+    startGame(mode);
+  }
+
+  function offerDraw() {
+    if (mode === "friend" && roomId) {
+      const socket = getSocket();
+      socket.emit("room:draw", { roomId }, (response: { ok: boolean; error?: string; state?: RoomState }) => {
+        if (!response?.ok) {
+          setToast(response?.error || "Draw request failed.");
+          return;
+        }
+        if (response.state) {
+          setRoomState(response.state);
+          syncGame(new Chess(response.state.fen));
+        }
+        setToast("Draw agreed.");
+      });
+      return;
+    }
+
+    setResultOverride("1/2-1/2");
+    setStatusOverride("Draw agreed");
+    setToast("Draw agreed.");
+  }
+
+  function resignGame() {
+    if (mode === "friend" && roomId) {
+      const socket = getSocket();
+      socket.emit("room:resign", { roomId }, (response: { ok: boolean; error?: string; state?: RoomState }) => {
+        if (!response?.ok) {
+          setToast(response?.error || "Resign failed.");
+          return;
+        }
+        if (response.state) {
+          setRoomState(response.state);
+          syncGame(new Chess(response.state.fen));
+        }
+        setToast("Game ended by resignation.");
+      });
+      return;
+    }
+
+    if (game.turn() === "w") {
+      setResultOverride("0-1");
+      setStatusOverride("White resigned");
+    } else {
+      setResultOverride("1-0");
+      setStatusOverride("Black resigned");
+    }
+    setToast("Game ended by resignation.");
   }
 
   async function sendInviteEmail() {
@@ -1839,7 +2174,7 @@ export default function App() {
           ? await registerUser({ name, email, password, city })
           : await loginUser({ email, password });
       setProfile(mapUserToProfile(user));
-      setView(roomId ? "play" : "home");
+      setView(roomId ? "game" : "home");
       setAuthErrors({});
       setAuthNotice({
         tone: "success",
@@ -1979,9 +2314,10 @@ export default function App() {
   }
 
   async function analyzeNow() {
-    setView("coach");
+    if (view !== "game") setView("coach");
     if (!canUseStockfish()) {
-      setToast(`${getCoachPositionLine(game, history)} Stockfish worker is not available in this browser.`);
+      setStockfishAnalysis(null);
+      setToast(`${getCoachPositionLine(game, history)} Engine unavailable, so Chess Master is using the built-in positional coach instead.`);
       return;
     }
 
@@ -2005,20 +2341,13 @@ export default function App() {
       }).catch(() => undefined);
     }
 
-    setToast(
-      best
-        ? `Stockfish recommends ${best.san} (${scoreText}).`
-        : "Stockfish analysis finished, but no best move was returned.",
-    );
+    setToast(best ? `Stockfish recommends ${best.san} (${scoreText}).` : "Analysis refreshed with fallback positional advice.");
   }
 
-  function joinCommunityRoom(label: string) {
-    const code = makeRoomCode(label);
-    setRoomId(code);
+  async function joinCommunityRoom(label: string) {
     setMode("friend");
-    setView("play");
-    window.history.replaceState(null, "", roomPath(code));
-    setToast(getRoomToast(label, code));
+    setToast(`${label} selected. Creating a live room for this community game.`);
+    await createRoom();
   }
 
   function selectCity(city: string) {
@@ -2092,7 +2421,7 @@ export default function App() {
   }
 
   function joinCommunityDetail(detail: CommunityDetail) {
-    joinCommunityRoom(detail.title);
+    void joinCommunityRoom(detail.title);
     setCommunityDetail(detail);
   }
 
@@ -2573,37 +2902,195 @@ export default function App() {
           )}
 
           {view === "play" && (
-            <div className="playGrid">
-              <section className="boardStage">
+            <section className="dashboardView playLobby">
+              <div className="sectionHeader">
+                <div>
+                  <span className="eyebrow">Choose your game</span>
+                  <h2>Modern chess, clean setup, no wasted clicks.</h2>
+                  <p className="sectionLead">Pick a mode, choose a time control, and launch straight into a focused game page with clocks, move list, coach help, and restart controls.</p>
+                </div>
+                <div className="planBadge">
+                  <Flame size={18} />
+                  {getTimeControlTitle(selectedTimeControl)}
+                </div>
+              </div>
+
+              <div className="playModeGrid">
+                <article className={mode === "friend" ? "playModeCard activePlayMode" : "playModeCard"}>
+                  <Users size={24} />
+                  <h3>Play vs Friend online</h3>
+                  <p>Share a room link, assign colors automatically, and play a live game with saved history.</p>
+                  <button className="wideButton" onClick={() => { setMode("friend"); void createRoom(); }} disabled={roomBusy}>
+                    {roomBusy ? "Creating room..." : "Start friend room"}
+                  </button>
+                </article>
+                <article className={mode === "local" ? "playModeCard activePlayMode" : "playModeCard"}>
+                  <Crown size={24} />
+                  <h3>Play on one device</h3>
+                  <p>Two players, one board, optional auto-rotation after every move, and the same clock logic.</p>
+                  <button className="wideButton" onClick={() => startGame("local")}>
+                    Start local 1v1
+                  </button>
+                </article>
+                <article className={mode === "ai" ? "playModeCard activePlayMode" : "playModeCard"}>
+                  <Brain size={24} />
+                  <h3>Play vs AI</h3>
+                  <p>Train against an easy, club, or master-strength bot with live coach suggestions and clean review.</p>
+                  <button className="wideButton" onClick={() => startGame("ai")}>
+                    Start AI game
+                  </button>
+                </article>
+              </div>
+
+              <div className="timeControlPanel">
+                <div className="panelTitle">
+                  <Zap size={18} />
+                  <h3>Time controls</h3>
+                </div>
+                <div className="timeControlGroups">
+                  {timeControlGroups.map((group) => (
+                    <div key={group.category} className="timeControlGroup">
+                      <span className="eyebrow">{group.category}</span>
+                      <div className="timeControlOptions">
+                        {group.options.map((option) => (
+                          <button
+                            key={option.id}
+                            className={selectedTimeControl.id === option.id ? "timeCard activeTimeCard" : "timeCard"}
+                            onClick={() => setSelectedTimeControlId(option.id)}
+                          >
+                            <strong>{option.label}</strong>
+                            <small>{option.category}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="timeControlGroup">
+                    <span className="eyebrow">Custom</span>
+                    <div className="customTimeControl">
+                      <label>
+                        Minutes
+                        <input
+                          type="number"
+                          min={1}
+                          max={180}
+                          value={customMinutes}
+                          onChange={(event) => {
+                            setSelectedTimeControlId("custom");
+                            setCustomMinutes(Math.max(1, Number(event.target.value) || 1));
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Increment
+                        <input
+                          type="number"
+                          min={0}
+                          max={60}
+                          value={customIncrement}
+                          onChange={(event) => {
+                            setSelectedTimeControlId("custom");
+                            setCustomIncrement(Math.max(0, Number(event.target.value) || 0));
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                <div className="timeSummaryBar">
+                  <div>
+                    <strong>{getModeLabel(mode)}</strong>
+                    <span>{getTimeControlTitle(selectedTimeControl)}</span>
+                  </div>
+                  <button className="primaryButton" onClick={() => (mode === "friend" ? void createRoom() : startGame(mode))} disabled={roomBusy}>
+                    <Play size={16} />
+                    Play Game
+                  </button>
+                </div>
+              </div>
+
+              <div className="playSupportGrid">
+                <article className="coachCard">
+                  <div className="panelTitle">
+                    <Brain size={18} />
+                    <h3>AI setup</h3>
+                  </div>
+                  {(Object.keys(aiProfiles) as AiLevel[]).map((level) => (
+                    <button key={level} className={aiLevel === level ? "aiLevel activeAi" : "aiLevel"} onClick={() => selectAiLevel(level)}>
+                      <span className={getBotClass(level)}>{getBotAvatar(level)}</span>
+                      <span>
+                        <strong>{aiProfiles[level].name}</strong>
+                        <small>{aiProfiles[level].rating} Elo · {aiProfiles[level].depth}</small>
+                      </span>
+                    </button>
+                  ))}
+                  <button className="ghostButton aiRecommend" onClick={autoPickAiLevel}>Use recommended AI</button>
+                </article>
+
+                <article className="roomCard">
+                  <div className="panelTitle">
+                    <History size={18} />
+                    <h3>Recent games</h3>
+                  </div>
+                  {savedGames.length === 0 ? (
+                    <div className="emptyState compactEmpty">No games saved yet. Start with a short blitz or a local practice match.</div>
+                  ) : (
+                    <div className="recentGames">
+                      {savedGames.slice(0, 3).map((savedGame) => (
+                        <div key={savedGame.id} className="recentGameRow">
+                          <strong>{savedGame.result}</strong>
+                          <span>{savedGame.mode} · {savedGame.moves.length} moves</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              </div>
+
+              <div className="booksGrid">
+                {chessBooks.slice(0, 3).map((book) => (
+                  <article className="bookCard" key={book.title}>
+                    <span>{book.tag}</span>
+                    <h3>{book.title}</h3>
+                    <strong>{book.author}</strong>
+                    <p>{book.reason}</p>
+                    <small>{book.level}</small>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {view === "game" && (
+            <div className="gamePage">
+              <section className="gameBoardShell">
                 <div className="gameHeader">
                   <div>
-                    <span className="eyebrow">
-                      {mode === "ai"
-                        ? "Human vs AI"
-                        : `Play with friend · Room ${roomId || "not created"}${friendColor ? ` · ${friendColor}` : ""}`}
-                    </span>
-                    <h2>{mode === "friend" ? roomState?.status || "Waiting for room sync" : getStatus(game)}</h2>
+                    <span className="eyebrow">{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</span>
+                    <h2>{displayStatus}</h2>
                   </div>
                   <div className="headerActions">
                     <button className="ghostButton" onClick={() => saveGame("manual")}>
                       <Save size={16} />
                       Save
                     </button>
-                    <button className="ghostButton" onClick={() => resetGame()} disabled={roomBusy}>
-                      <RefreshCcw size={16} />
-                      {mode === "friend" ? "New room" : "New"}
+                    <button className="ghostButton" onClick={backToLobby}>
+                      <Menu size={16} />
+                      Back to lobby
                     </button>
                   </div>
                 </div>
 
-                <div className="captured topCaptured">
-                  {whiteCaptured.map((piece, index) => (
-                    <span key={`${piece}-${index}`}>{pieceIcons[piece]}</span>
-                  ))}
+                <div className="timerStack topTimer">
+                  <div>
+                    <span>{mode === "friend" ? roomState?.players.black?.name || "Black" : mode === "ai" ? aiProfiles[aiLevel].name : "Black"}</span>
+                    <strong>{formatClock(mode === "friend" && roomState ? roomState.remainingMs.black : blackTimeMs)}</strong>
+                  </div>
+                  <small>{activeTurn === "black" ? "Clock running" : "Waiting"}</small>
                 </div>
 
-                <div className="board" aria-label="Chess board">
-                  {board.map(({ square, piece }, index) => {
+                <div className={boardOrientation === "black" ? "board boardFlipped" : "board"} aria-label="Chess board">
+                  {displayedBoard.map(({ square, piece }, index) => {
                     const isLight = (Math.floor(index / 8) + index) % 2 === 0;
                     const isSelected = selected === square;
                     const isTarget = legalTargets.includes(square);
@@ -2624,95 +3111,98 @@ export default function App() {
                         <span className={piece ? `piece ${piece.color}` : "piece"}>
                           {piece ? pieceIcons[`${piece.color}${piece.type}`] : ""}
                         </span>
-                        {file === "a" && <span className="coord rankCoord">{rank}</span>}
-                        {rank === "1" && <span className="coord fileCoord">{file}</span>}
+                        {file === (boardOrientation === "white" ? "a" : "h") && <span className="coord rankCoord">{rank}</span>}
+                        {rank === (boardOrientation === "white" ? "1" : "8") && <span className="coord fileCoord">{file}</span>}
                       </button>
                     );
                   })}
                 </div>
 
-                <div className="captured bottomCaptured">
-                  {blackCaptured.map((piece, index) => (
-                    <span key={`${piece}-${index}`}>{pieceIcons[piece]}</span>
-                  ))}
+                <div className="timerStack bottomTimer">
+                  <div>
+                    <span>{mode === "friend" ? roomState?.players.white.name || "White" : "White"}</span>
+                    <strong>{formatClock(mode === "friend" && roomState ? roomState.remainingMs.white : whiteTimeMs)}</strong>
+                  </div>
+                  <small>{activeTurn === "white" ? "Clock running" : "Waiting"}</small>
+                </div>
+
+                <div className="gameActionRow">
+                  <button className="ghostButton" onClick={resignGame}>Resign</button>
+                  <button className="ghostButton" onClick={offerDraw}>Offer draw</button>
+                  <button className="ghostButton" onClick={restartCurrentGame} disabled={roomBusy}>{mode === "friend" ? "New room" : "Restart"}</button>
                 </div>
               </section>
 
-              <aside className="sidePanel">
-                <div className="modeSwitch">
-                  <button className={mode === "ai" ? "selectedMode" : ""} onClick={() => resetGame("ai")}>
-                    <Brain size={17} />
-                    AI
-                  </button>
-                  <button className={mode === "friend" ? "selectedMode" : ""} onClick={() => void createRoom()} disabled={roomBusy}>
-                    <Users size={17} />
-                    {roomBusy ? "Creating..." : "Play with Friend"}
-                  </button>
-                </div>
-
-                <div className="aiChooser">
-                  <div className="panelTitle">
-                    <Sparkles size={18} />
-                    <h3>Choose AI</h3>
-                  </div>
-                  {(Object.keys(aiProfiles) as AiLevel[]).map((level) => (
-                    <button
-                      key={level}
-                      className={aiLevel === level ? "aiLevel activeAi" : "aiLevel"}
-                      onClick={() => selectAiLevel(level)}
-                    >
-                      <span className={getBotClass(level)}>{getBotAvatar(level)}</span>
-                      <span>
-                        <strong>{aiProfiles[level].name}</strong>
-                        <small>{aiProfiles[level].rating} Elo · {aiProfiles[level].depth}</small>
-                      </span>
-                    </button>
-                  ))}
-                  <button className="ghostButton aiRecommend" onClick={autoPickAiLevel}>Use recommended AI</button>
-                </div>
-
-                <div className="coachCard">
+              <aside className="gameSideRail">
+                <div className="coachCard gameCoachCard">
                   <div className="panelTitle">
                     <Brain size={19} />
-                    <h3>Live Coach</h3>
+                    <h3>Coach panel</h3>
                   </div>
-                  <p>{toast}</p>
-                  <button className="ghostButton analyzeButton" onClick={analyzeNow}>{getPrimaryCoachAction(history)}</button>
+                  <p>{stockfishBusy ? "Analyzing position..." : displayStatus}</p>
+                  <div className="coachActions">
+                    <button className="ghostButton" onClick={analyzeNow}>{stockfishBusy ? "Analyzing..." : "Analyze again"}</button>
+                    <button className="ghostButton" onClick={() => setCoachMode("beginner")}>Explain simpler</button>
+                    <button
+                      className="ghostButton"
+                      onClick={() =>
+                        setToast(
+                          findBestMove(game) || history[history.length - 1]
+                            ? getMoveFeedback((findBestMove(game) || history[history.length - 1]) as Move, coachMode)
+                            : "Training tip: develop pieces, fight for the center, and secure your king before attacking.",
+                        )
+                      }
+                    >
+                      Training tip
+                    </button>
+                  </div>
+                  <div className="coachBulletPanel">
+                    <div>
+                      <span>Best move</span>
+                      <strong>{stockfishAnalysis?.bestMove || (findBestMove(game)?.san ?? "Heuristic move ready")}</strong>
+                    </div>
+                    <div>
+                      <span>Evaluation</span>
+                      <strong>{formatEvaluation(stockfishAnalysis)}</strong>
+                    </div>
+                    <div>
+                      <span>Why it works</span>
+                      <p>{coachReport[0]?.text || getCoachEmptyText(history)}</p>
+                    </div>
+                    <div>
+                      <span>Danger to avoid</span>
+                      <p>{coachReport.find((item) => item.tone === "warning")?.text || "No immediate tactical warning. Stay alert to checks and hanging pieces."}</p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="roomCard">
                   <div className="panelTitle">
                     <Users size={19} />
-                    <h3>Play by link</h3>
+                    <h3>Game info</h3>
                   </div>
-                  {mode === "friend" && (
-                    <p>
-                      {roomState?.waitingForOpponent
-                        ? "White is seated. Waiting for black to join by room link."
-                        : `Turn: ${roomState?.turn || "white"} · Status: ${roomState?.status || "syncing"}`}
-                    </p>
+                  <p>{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</p>
+                  {mode === "local" && (
+                    <label className="toggleRow">
+                      <span>Auto-rotate board</span>
+                      <input type="checkbox" checked={autoRotateBoard} onChange={(event) => setAutoRotateBoard(event.target.checked)} />
+                    </label>
                   )}
-                  {roomId ? (
+                  {roomId && (
                     <>
                       <code>{roomUrl}</code>
                       <button className="wideButton" onClick={copyRoomLink}>
                         <Copy size={16} />
-                        {getRoomActionLabel(roomId)}
+                        Copy room link
                       </button>
                       <label>
                         Invite by email
                         <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="friend@example.com" />
                       </label>
                       <button className="ghostButton wideButton" onClick={sendInviteEmail} disabled={inviteBusy}>
-                        <Sparkles size={16} />
                         {inviteBusy ? "Sending invite..." : "Send invite email"}
                       </button>
                     </>
-                  ) : (
-                    <button className="wideButton" onClick={() => void createRoom()} disabled={roomBusy}>
-                      <Zap size={16} />
-                      {roomBusy ? "Creating room..." : "Create live room"}
-                    </button>
                   )}
                 </div>
 
@@ -2723,7 +3213,7 @@ export default function App() {
                   </div>
                   <div className="moveList">
                     {history.length === 0 ? (
-                      <span className="empty">Your moves will appear here.</span>
+                      <span className="empty">Moves will appear after the game starts.</span>
                     ) : (
                       history.map((move, index) => (
                         <span key={`${move.san}-${index}`}>
@@ -2733,6 +3223,18 @@ export default function App() {
                       ))
                     )}
                   </div>
+                </div>
+
+                <div className="booksGrid compactBooksGrid">
+                  {chessBooks.slice(0, 2).map((book) => (
+                    <article className="bookCard" key={`game-${book.title}`}>
+                      <span>{book.tag}</span>
+                      <h3>{book.title}</h3>
+                      <strong>{book.author}</strong>
+                      <p>{book.reason}</p>
+                      <small>{book.level}</small>
+                    </article>
+                  ))}
                 </div>
               </aside>
             </div>
@@ -2909,7 +3411,7 @@ export default function App() {
                             ? `${(stockfishAnalysis.scoreCp / 100).toFixed(2)} pawns`
                             : "score pending"
                       }`
-                    : "Click Analyze with Stockfish to calculate the current position."}
+                    : `Fallback coach active: ${findBestMove(game)?.san ?? "develop pieces and secure the king"}. Analyze again whenever the worker is available.`}
                 </span>
                 <div className="coachModes">
                   {(["beginner", "intermediate", "advanced"] as CoachMode[]).map((modeName) => (
@@ -2925,6 +3427,11 @@ export default function App() {
                 <span>
                   Evaluation: {formatEvaluation(stockfishAnalysis)} · Coach mode: {coachMode}
                 </span>
+                <div className="coachActions">
+                  <button className="ghostButton" onClick={analyzeNow}>{stockfishBusy ? "Analyzing..." : "Analyze again"}</button>
+                  <button className="ghostButton" onClick={() => setCoachMode("beginner")}>Explain simpler</button>
+                  <button className="ghostButton" onClick={() => setToast(coachReport[0]?.text || getCoachEmptyText(history))}>Give me a training tip</button>
+                </div>
               </div>
               <div className="coachLine">
                 <strong>{getReviewLabel(reviewScore)}</strong>
@@ -3000,6 +3507,17 @@ export default function App() {
                   ))
                 )}
               </div>
+              <div className="booksGrid">
+                {chessBooks.slice(2, 5).map((book) => (
+                  <article className="bookCard" key={`history-${book.title}`}>
+                    <span>{book.tag}</span>
+                    <h3>{book.title}</h3>
+                    <strong>{book.author}</strong>
+                    <p>{book.reason}</p>
+                    <small>{book.level}</small>
+                  </article>
+                ))}
+              </div>
             </section>
           )}
 
@@ -3034,6 +3552,19 @@ export default function App() {
                     <span>{getCityRankLabel(entry.rank)}</span>
                     <span><Flame size={15} /> {entry.streak}</span>
                   </div>
+                ))}
+              </div>
+              <div className="communityClubGrid compactClubGrid">
+                {communityClubs.map((club) => (
+                  <article className="clubCard" key={`leader-${club.name}`}>
+                    <span>{profile.city} chess clubs</span>
+                    <h3>{club.name}</h3>
+                    <strong>{club.address}</strong>
+                    <p>{club.description}</p>
+                    <button className="wideButton" onClick={() => openExternal(get2gisSearchUrl(club.query), `${club.name} in 2GIS`)}>
+                      Suggested 2GIS search
+                    </button>
+                  </article>
                 ))}
               </div>
             </section>
@@ -3099,6 +3630,24 @@ export default function App() {
                 </div>
               ) : (
                 <>
+                  <div className="communityClubGrid">
+                    {communityClubs.map((club) => (
+                      <article className="clubCard" key={`${profile.city}-${club.name}`}>
+                        <span>{profile.city}</span>
+                        <h3>{club.name}</h3>
+                        <strong>{club.address}</strong>
+                        <p>{club.description}</p>
+                        <div className="clubMeta">
+                          <span>{club.hours}</span>
+                          <span>{club.level}</span>
+                          <span>{club.contact}</span>
+                        </div>
+                        <button className="wideButton" onClick={() => openExternal(get2gisSearchUrl(club.query), `${club.name} in 2GIS`)}>
+                          Open in 2GIS
+                        </button>
+                      </article>
+                    ))}
+                  </div>
                   <div className="communityGrid">
                     {communityPosts.map((post) => (
                       <article className="communityCard" key={post.title}>
@@ -3145,6 +3694,17 @@ export default function App() {
                         <small>{link.source}</small>
                         <ExternalLink size={15} />
                       </button>
+                    ))}
+                  </div>
+                  <div className="booksGrid">
+                    {chessBooks.slice(0, 3).map((book) => (
+                      <article className="bookCard" key={`community-${book.title}`}>
+                        <span>{book.tag}</span>
+                        <h3>{book.title}</h3>
+                        <strong>{book.author}</strong>
+                        <p>{book.reason}</p>
+                        <small>{book.level}</small>
+                      </article>
                     ))}
                   </div>
                   <div className="utilityGrid">

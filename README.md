@@ -6,6 +6,10 @@ Chess Master is a modern chess platform with a React frontend and a Node.js back
 
 - Email/password authentication with backend validation
 - Secure session cookie and protected app access
+- Dedicated play lobby with mode selection and timer cards
+- Time controls: Bullet, Blitz, Rapid, Classical, and Custom
+- Separate game page with clocks, move history, board controls, and coach panel
+- One-device 1v1 mode with optional board auto-rotation
 - Real `Play with Friend` room links at `/play/room/:roomId`
 - Live multiplayer with automatic white/black assignment
 - Legal move validation on both client and server with `chess.js`
@@ -13,7 +17,9 @@ Chess Master is a modern chess platform with a React frontend and a Node.js back
 - Email notifications for invites, results, sign-in notices, and coach tips
 - Notification preferences for invitations, results, and coach emails
 - AI play, puzzles, academy, community hub, city leaderboard, and themes
-- Stockfish-assisted coach with evaluation, best move, and difficulty modes
+- City-aware community suggestions with 2GIS search links
+- Stockfish-assisted coach with fallback heuristics, evaluation, best move, and difficulty modes
+- Responsive layout for phone, tablet, and desktop
 
 ## Tech Stack
 
@@ -109,6 +115,76 @@ npm run start:server
 - Private app areas are only rendered after a valid session is present.
 - Logging out clears the session cookie and returns the user to the landing/auth screen.
 
+## Available Game Modes
+
+- `Play vs AI`
+  - Uses the selected clock and current AI strength
+- `Play on one device`
+  - Two local players share one screen
+  - Optional board auto-rotation after every legal move
+- `Play vs Friend online`
+  - Creates a live room link with automatic white/black assignment
+  - Uses Socket.IO for move sync and room state updates
+
+## Timer Controls
+
+The play lobby includes preset time controls:
+
+- Bullet: `1+0`, `2+1`
+- Blitz: `3+0`, `3+2`, `5+0`
+- Rapid: `10+0`, `15+10`
+- Classical: `30+0`
+- Custom: choose your own minutes and increment
+
+Timer behavior:
+
+- The active player's clock runs
+- Increment is added after a legal move
+- If a clock reaches zero, the opponent wins on time
+- Restart resets board, timers, and move history
+
+## One-Device Mode
+
+`Play on one device` is a local pass-and-play mode:
+
+- White starts with the normal board orientation
+- If auto-rotate is enabled, the board rotates after each legal move so the side to move sees their pieces from their own side
+- Move history and clocks remain active
+
+## City / 2GIS Community Layer
+
+- The selected profile city also drives:
+  - leaderboard focus
+  - community suggestions
+  - 2GIS club search links
+- Community entries are presented as suggested searches, not verified official claims
+- Example flow:
+  - choose `Almaty`
+  - open a suggested 2GIS search for `шахматный клуб Алматы`
+
+## AI Coach
+
+The coach now works in two layers:
+
+- `Stockfish mode`
+  - best move
+  - evaluation score
+  - tactical / positional guidance when the worker is available
+- `Fallback coach mode`
+  - used automatically if Stockfish is unavailable
+  - looks at king safety, development, center control, captures, checks, and opening habits
+
+Coach levels:
+
+- Beginner
+- Intermediate
+- Advanced
+
+Coach surfaces:
+
+- dedicated `Coach` page
+- coach panel beside the board on the game page
+
 ## Google OAuth Setup
 
 Google auth is optional and currently hidden in the default UI until the backend OAuth flow is configured and verified.
@@ -150,6 +226,8 @@ Recommended production setup:
 - Multiplayer room state is kept in memory while the server is running.
 - Friend game results are persisted to history when the game finishes.
 - The existing frontend structure is still centered in `src/App.tsx`, but the network logic has been moved into reusable client helpers under `src/lib/`.
+- Friend clocks are synchronized through room state updates while the room is active.
+- Community club cards are suggestion-driven and intentionally open 2GIS searches instead of claiming unverified official listings.
 
 ## Common Errors And Fixes
 
