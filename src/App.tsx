@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Chess, Color, Move, PieceSymbol, Square } from "chess.js";
 import {
   BadgeDollarSign,
@@ -522,25 +522,96 @@ const legends = [
   {
     name: "Magnus Carlsen",
     role: "World Champion",
-    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Magnus_Carlsen_in_2023.jpg",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Magnus_Carlsen_in_2023.jpg?width=320",
     message: "Enjoy the fight. The best players stay curious even in quiet positions.",
     action: "Train calculation",
   },
   {
     name: "Judit Polgar",
     role: "Attacking legend",
-    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Judit_Polgar.jpg",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Judit_Polgar.jpg?width=320",
     message: "Play actively. Initiative can be worth more than comfort.",
     action: "Open tactics",
   },
   {
     name: "Garry Kasparov",
     role: "World Champion",
-    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Garry_Kasparov_IMG_0130.JPG",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Garry_Kasparov_IMG_0130.JPG?width=320",
     message: "Preparation creates confidence. Review, improve, repeat.",
     action: "Analyze game",
   },
 ];
+
+type AppErrorBoundaryProps = {
+  children: ReactNode;
+};
+
+type AppErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
+  constructor(props: AppErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("Chess Master UI error", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <main className="app midnight">
+          <section className="welcomeGate">
+            <div className="welcomeHero">
+              <span className="eyebrow">Temporary recovery</span>
+              <h2>The board hit a rendering error, but your session is still safe.</h2>
+              <p>Reload the page to restore the board. If this happened during an AI move, Chess Master will fall back to a simpler legal-move reply after reload.</p>
+              <div className="heroActions">
+                <button className="primaryButton" onClick={() => window.location.reload()} type="button">
+                  <RefreshCcw size={18} />
+                  Reload board
+                </button>
+              </div>
+            </div>
+          </section>
+        </main>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function LegendPortrait({ image, name }: { image: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name
+    .split(" ")
+    .map((part) => part[0] || "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  if (failed) {
+    return <div className="legendFallback" aria-label={`${name} portrait fallback`}>{initials}</div>;
+  }
+
+  return (
+    <img
+      src={image}
+      alt={name}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 const communityWisdom = [
   { player: "Emanuel Lasker", text: "When you see a good move, look for a better one." },
@@ -808,11 +879,28 @@ function isValidPuzzleMove(game: Chess, from: Square, to: Square) {
 
 function playUciMove(game: Chess, uci: string | null) {
   if (!uci || uci.length < 4) return null;
-  return game.move({
-    from: uci.slice(0, 2) as Square,
-    to: uci.slice(2, 4) as Square,
-    promotion: (uci[4] || "q") as "q" | "r" | "b" | "n",
-  });
+  try {
+    return game.move({
+      from: uci.slice(0, 2) as Square,
+      to: uci.slice(2, 4) as Square,
+      promotion: (uci[4] || "q") as "q" | "r" | "b" | "n",
+    });
+  } catch {
+    return null;
+  }
+}
+
+function applyVerboseMove(game: Chess, move: Move | null) {
+  if (!move) return null;
+  try {
+    return game.move({
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion || "q",
+    });
+  } catch {
+    return null;
+  }
 }
 
 function getLessonBoost(title: string) {
@@ -2097,8 +2185,9 @@ export default function App() {
 
   function makeAiMove(nextGame: Chess) {
     setAiThinking(true);
+    setStockfishAnalysis(null);
     window.setTimeout(async () => {
-      if (nextGame.isGameOver() || mode !== "ai") {
+      if (nextGame.isGameOver() || mode !== "ai" || view !== "game") {
         setAiThinking(false);
         return;
       }
@@ -2121,7 +2210,7 @@ export default function App() {
             setAiThinking(false);
             return;
           }
-          aiMove = nextGame.move(fallback);
+          aiMove = applyVerboseMove(nextGame, fallback);
         }
 
         if (!aiMove) {
@@ -2933,7 +3022,8 @@ export default function App() {
   }
 
   return (
-    <main className={`app ${theme}`}>
+    <AppErrorBoundary>
+      <main className={`app ${theme}`}>
       <section className="topbar">
         <div className="brand">
           <div className="brandMark">♞</div>
@@ -4640,7 +4730,7 @@ export default function App() {
             <div className="legendList">
               {legends.map((legend) => (
                 <article key={legend.name} className="legendCard">
-                  <img src={legend.image} alt={legend.name} loading="lazy" />
+                  <LegendPortrait image={legend.image} name={legend.name} />
                   <div>
                     <span>{legend.role}</span>
                     <strong>{legend.name}</strong>
@@ -4801,6 +4891,7 @@ export default function App() {
           </section>
         </div>
       )}
-    </main>
+      </main>
+    </AppErrorBoundary>
   );
 }

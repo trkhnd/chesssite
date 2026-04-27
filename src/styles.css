@@ -2325,6 +2325,21 @@ h2 {
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
+.legendFallback {
+  display: grid;
+  width: 66px;
+  height: 88px;
+  place-items: center;
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at top, rgba(240, 207, 117, 0.24), transparent 48%),
+    linear-gradient(160deg, color-mix(in srgb, currentColor 10%, transparent), color-mix(in srgb, currentColor 4%, transparent));
+  color: color-mix(in srgb, currentColor 88%, white 12%);
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
 .legendCard span,
 .legendCard p {
   color: color-mix(in srgb, currentColor 68%, transparent);
