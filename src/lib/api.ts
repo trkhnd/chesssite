@@ -15,6 +15,11 @@ export type ApiUser = {
   notifications: NotificationSettings;
 };
 
+export type SessionPayload = {
+  user: ApiUser;
+  socketToken: string;
+};
+
 export type PublicConfig = {
   googleEnabled: boolean;
   googleClientId: string;
@@ -127,8 +132,7 @@ export function getPublicConfig() {
 
 export async function getSession() {
   try {
-    const data = await request<{ user: ApiUser }>("/api/auth/me");
-    return data.user;
+    return await request<SessionPayload>("/api/auth/me");
   } catch (error) {
     if (error instanceof Error && /Authentication required|User not found/.test(error.message)) {
       return null;
@@ -138,27 +142,27 @@ export async function getSession() {
 }
 
 export async function registerUser(payload: { name: string; email: string; password: string; city: string }) {
-  const data = await request<{ user: ApiUser }>("/api/auth/register", {
+  const data = await request<SessionPayload>("/api/auth/register", {
     method: "POST",
     body: payload,
   });
-  return data.user;
+  return data;
 }
 
 export async function loginUser(payload: { email: string; password: string }) {
-  const data = await request<{ user: ApiUser }>("/api/auth/login", {
+  const data = await request<SessionPayload>("/api/auth/login", {
     method: "POST",
     body: payload,
   });
-  return data.user;
+  return data;
 }
 
 export async function loginWithGoogleCode(payload: { code: string; city: string }) {
-  const data = await request<{ user: ApiUser }>("/api/auth/google", {
+  const data = await request<SessionPayload>("/api/auth/google", {
     method: "POST",
     body: payload,
   });
-  return data.user;
+  return data;
 }
 
 export function logoutUser() {

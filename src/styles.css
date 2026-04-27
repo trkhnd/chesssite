@@ -280,6 +280,11 @@ h2 {
   gap: 16px;
 }
 
+.productShell.gameShell {
+  grid-template-columns: 220px minmax(0, 1fr);
+  max-width: 1320px;
+}
+
 .navPanel,
 .mainStage,
 .rightRail,
@@ -1047,8 +1052,9 @@ h2 {
 }
 
 .gamePage {
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, min(100%, 860px)) minmax(280px, 320px);
   align-items: start;
+  justify-content: center;
 }
 
 .boardStage,
@@ -1066,8 +1072,8 @@ h2 {
 }
 
 .gameHeader h2 {
-  font-size: clamp(2rem, 5vw, 4.8rem);
-  line-height: 0.95;
+  font-size: clamp(1.9rem, 4vw, 3.6rem);
+  line-height: 0.98;
 }
 
 .sectionLead {
@@ -1090,8 +1096,8 @@ h2 {
 
 .board {
   display: grid;
-  width: min(100%, min(90vw, 760px));
-  max-width: min(100%, calc(100vh - 230px));
+  width: min(72vh, 680px, calc(100vw - 580px));
+  max-width: 100%;
   min-width: 280px;
   aspect-ratio: 1;
   grid-template-columns: repeat(8, 1fr);
@@ -1296,6 +1302,10 @@ h2 {
   margin-top: 12px;
 }
 
+.gameSideRail > *:first-child {
+  margin-top: 0;
+}
+
 .panelTitle {
   gap: 8px;
   margin-bottom: 10px;
@@ -1320,6 +1330,25 @@ h2 {
   white-space: nowrap;
 }
 
+.gameMeta {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.gameMeta span {
+  color: color-mix(in srgb, currentColor 64%, transparent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.gameMeta strong {
+  font-size: 1rem;
+}
+
 .wideButton {
   width: 100%;
   justify-content: center;
@@ -1327,7 +1356,7 @@ h2 {
 
 .moveList {
   display: flex;
-  max-height: 300px;
+  max-height: 360px;
   flex-wrap: wrap;
   gap: 8px;
   overflow: auto;
@@ -1358,7 +1387,7 @@ h2 {
 }
 
 .gameActionRow {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .gameActionRow button,
@@ -1372,6 +1401,12 @@ h2 {
 .coachBulletPanel {
   display: grid;
   gap: 10px;
+}
+
+.gameResources {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
 }
 
 .coachBulletPanel p {
@@ -2495,7 +2530,8 @@ h2 {
   }
 
   .timeControlGroups,
-  .playSupportGrid {
+  .playSupportGrid,
+  .gameResources {
     grid-template-columns: 1fr;
   }
 }

@@ -27,6 +27,19 @@ export function signSession(user) {
   );
 }
 
+export function signSocketSession(user) {
+  return jwt.sign(
+    {
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      scope: "socket",
+    },
+    config.jwtSecret,
+    { expiresIn: "12h" },
+  );
+}
+
 export function verifySessionToken(token) {
   try {
     const payload = jwt.verify(token, config.jwtSecret);
@@ -66,6 +79,13 @@ export function requireAuth(req, res, next) {
 }
 
 export function getSessionFromSocket(socket) {
+  const authToken =
+    typeof socket.handshake.auth?.token === "string" ? socket.handshake.auth.token : "";
+  if (authToken) {
+    const authSession = verifySessionToken(authToken);
+    if (authSession) return authSession;
+  }
+
   const header = socket.handshake.headers.cookie || "";
   const cookies = cookie.parse(header);
   const token = cookies[SESSION_COOKIE];

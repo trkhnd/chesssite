@@ -14,6 +14,7 @@ import {
   getSessionFromSocket,
   requireAuth,
   setSessionCookie,
+  signSocketSession,
   signSession,
 } from "./auth.js";
 import {
@@ -119,7 +120,7 @@ function sendError(res, status, error) {
 }
 
 function sendUser(res, status, user) {
-  res.status(status).json({ ok: true, user });
+  res.status(status).json({ ok: true, user, socketToken: signSocketSession(user) });
 }
 
 app.use(

@@ -48,7 +48,7 @@ import {
   type NotificationSettings,
   type RoomState,
 } from "./lib/api";
-import { getSocket } from "./lib/socket";
+import { getSocket, setSocketToken } from "./lib/socket";
 import { analyzeFen, canUseStockfish, type StockfishAnalysis } from "./lib/stockfish";
 
 type BoardSquare = {
@@ -1422,6 +1422,16 @@ function mapUserToProfile(user: ApiUser): Profile {
   };
 }
 
+function normalizeAuthMessage(message: string, signedIn: boolean) {
+  if (/Authentication required/i.test(message)) {
+    return signedIn ? "Session expired, please log in again." : "Please sign in to create a room.";
+  }
+  if (/Network error|Server unavailable/i.test(message)) {
+    return "Could not create room, server unavailable.";
+  }
+  return message;
+}
+
 export default function App() {
   const initialRoomId = getRoomIdFromLocation();
   const [game, setGame] = useState(() => new Chess());
@@ -1437,6 +1447,7 @@ export default function App() {
   const [customMinutes, setCustomMinutes] = useState(() => loadJson("cm-custom-minutes", 12));
   const [customIncrement, setCustomIncrement] = useState(() => loadJson("cm-custom-increment", 5));
   const [profile, setProfile] = useState<Profile>(defaultProfile);
+  const [socketSessionToken, setSocketSessionTokenState] = useState("");
   const [savedGames, setSavedGames] = useState<SavedGame[]>(() => loadJson("cm-games", []));
   const [roomId, setRoomId] = useState(initialRoomId);
   const [toast, setToast] = useState("Take the Elo quiz first. Chess Master will not invent your level.");
@@ -1478,6 +1489,7 @@ export default function App() {
   const [resultOverride, setResultOverride] = useState<string | null>(null);
   const [autoRotateBoard, setAutoRotateBoard] = useState(true);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const lastSavedFen = useRef("");
   const authPanelRef = useRef<HTMLDivElement | null>(null);
 
@@ -1512,6 +1524,8 @@ export default function App() {
   );
   const communityClubs = useMemo(() => getClubSuggestions(profile.city), [profile.city]);
   const t = (key: keyof typeof copy.en) => copy[language][key] ?? copy.en[key];
+  const isGameFinished = Boolean(mode === "friend" ? roomState?.finished : resultOverride || game.isGameOver());
+  const showGameAnalysis = view === "game" && isGameFinished && analysisOpen;
 
   const leaderboard = useMemo(() => {
     const userStreak = savedGames.filter((savedGame) => savedGame.result === "1-0").length;
@@ -1665,7 +1679,9 @@ export default function App() {
         if (cancelled) return;
 
         if (sessionUser) {
-          setProfile(mapUserToProfile(sessionUser));
+          setProfile(mapUserToProfile(sessionUser.user));
+          setSocketSessionTokenState(sessionUser.socketToken);
+          setSocketToken(sessionUser.socketToken);
         }
       } catch (error) {
         if (!cancelled) {
@@ -1684,6 +1700,10 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setSocketToken(socketSessionToken);
+  }, [socketSessionToken]);
 
   useEffect(() => {
     if (!profile.signedIn) return;
@@ -1738,8 +1758,8 @@ export default function App() {
       syncGame(new Chess(nextState.fen));
     };
 
-    const handleConnectError = () => {
-      setToast("Live room connection failed.");
+    const handleConnectError = (error: Error) => {
+      setToast(normalizeAuthMessage(error?.message || "Live room connection failed.", profile.signedIn));
     };
 
     socket.on("room:state", handleRoomState);
@@ -1752,11 +1772,11 @@ export default function App() {
     socket.emit(
       "room:join",
       { roomId },
-      (response: { ok: boolean; error?: string; color?: "white" | "black"; state?: RoomState }) => {
-        if (!response?.ok || !response.state) {
-          setToast(response?.error || "Unable to join room.");
-          return;
-        }
+        (response: { ok: boolean; error?: string; color?: "white" | "black"; state?: RoomState }) => {
+          if (!response?.ok || !response.state) {
+            setToast(normalizeAuthMessage(response?.error || "Unable to join room.", profile.signedIn));
+            return;
+          }
 
         setFriendColor(response.color || null);
         setMode("friend");
@@ -1777,6 +1797,12 @@ export default function App() {
       socket.off("connect_error", handleConnectError);
     };
   }, [profile.signedIn, roomId]);
+
+  useEffect(() => {
+    if (!sessionChecked || !roomId || profile.signedIn) return;
+    setAuthMode("login");
+    setToast("Please sign in to join this friend room.");
+  }, [sessionChecked, roomId, profile.signedIn]);
 
   useEffect(() => {
     if (!game.isGameOver() || lastSavedFen.current === game.fen()) return;
@@ -1851,6 +1877,7 @@ export default function App() {
 
   function openGameView(path = gamePath()) {
     setView("game");
+    setAnalysisOpen(false);
     window.history.replaceState(null, "", path);
   }
 
@@ -1865,6 +1892,7 @@ export default function App() {
     setLegalTargets([]);
     setPendingPromotion(null);
     setAiThinking(false);
+    setAnalysisOpen(false);
     resetLocalClock(selectedTimeControl);
     syncGame(nextGame);
     openGameView();
@@ -1908,7 +1936,7 @@ export default function App() {
 
         syncGame(nextGame);
         applyIncrement("black");
-        setToast(makeAiThinkingText(aiLevel, aiMove));
+        setToast(`AI played ${aiMove.san}.`);
       } catch (error) {
         setToast(error instanceof Error ? error.message : "AI move failed, but your game is still safe.");
       } finally {
@@ -1965,7 +1993,7 @@ export default function App() {
     const movingColor = move.color === "w" ? "white" : "black";
     syncGame(nextGame);
     applyIncrement(movingColor);
-    setToast(`${move.san}: ${getMoveFeedback(move, coachMode)}`);
+    setToast(`${move.san} played.`);
     if (mode === "ai") {
       makeAiMove(nextGame);
     }
@@ -2062,6 +2090,12 @@ export default function App() {
   }
 
   async function createRoom() {
+    if (!profile.signedIn) {
+      openAuth("login");
+      setToast("Please sign in to create a room.");
+      return;
+    }
+
     try {
       setRoomBusy(true);
       const room = await createFriendRoom({ timeControl: selectedTimeControl });
@@ -2074,7 +2108,11 @@ export default function App() {
       syncGame(new Chess(room.state.fen));
       setToast(`Friend room created · ${getTimeControlTitle(selectedTimeControl)}. Share the link and wait for black to join.`);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Failed to create room.");
+      const message =
+        error instanceof Error
+          ? normalizeAuthMessage(error.message, profile.signedIn)
+          : "Could not create room, server unavailable.";
+      setToast(message);
     } finally {
       setRoomBusy(false);
     }
@@ -2088,9 +2126,8 @@ export default function App() {
 
   function backToLobby() {
     setView("play");
-    if (!roomId) {
-      window.history.replaceState(null, "", "/");
-    }
+    setAnalysisOpen(false);
+    window.history.replaceState(null, "", "/");
   }
 
   function restartCurrentGame() {
@@ -2245,18 +2282,20 @@ export default function App() {
     setAuthPending(true);
 
     try {
-      const user =
+      const session =
         authMode === "signup"
           ? await registerUser({ name, email, password, city })
           : await loginUser({ email, password });
-      setProfile(mapUserToProfile(user));
+      setProfile(mapUserToProfile(session.user));
+      setSocketSessionTokenState(session.socketToken);
+      setSocketToken(session.socketToken);
       setView(roomId ? "game" : "home");
       setAuthErrors({});
       setAuthNotice({
         tone: "success",
         text: authMode === "signup" ? "Account created successfully. Opening your dashboard." : "Signed in successfully. Opening your dashboard.",
       });
-      setToast(authMode === "signup" ? `Account created for ${user.name}.` : `Welcome back, ${user.name}.`);
+      setToast(authMode === "signup" ? `Account created for ${session.user.name}.` : `Welcome back, ${session.user.name}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Authentication failed.";
       setAuthErrors({ form: message });
@@ -2275,10 +2314,13 @@ export default function App() {
       return;
     }
 
+    getSocket().disconnect();
     setView("home");
     setRoomId("");
     setRoomState(null);
     setFriendColor(null);
+    setSocketSessionTokenState("");
+    setSocketToken("");
     setProfile({ ...defaultProfile, city: profile.city, rating: profile.rating });
     window.history.replaceState(null, "", "/");
     setToast("Signed out. Log in again to continue.");
@@ -2390,7 +2432,17 @@ export default function App() {
   }
 
   async function analyzeNow() {
-    if (view !== "game") setView("coach");
+    if (view === "game" && !isGameFinished) {
+      setToast("Finish the game first, then open analysis with Coach.");
+      return;
+    }
+
+    if (view === "game") {
+      setAnalysisOpen(true);
+    } else {
+      setView("coach");
+    }
+
     if (!canUseStockfish()) {
       setStockfishAnalysis(null);
       setToast(`${getCoachPositionLine(game, history)} Engine unavailable, so Chess Master is using the built-in positional coach instead.`);
@@ -2588,7 +2640,7 @@ export default function App() {
           )}
           <button className="proButton" onClick={() => (profile.signedIn ? setView("pro") : openAuth("signup"))} type="button">
             <Crown size={18} />
-            {profile.pro ? "Pro Active" : "Upgrade Pro"}
+            {profile.pro ? "Pro Preview" : "Upgrade Pro"}
           </button>
         </div>
       </section>
@@ -2805,7 +2857,7 @@ export default function App() {
           </div>
         </section>
       ) : (
-      <section className={`productShell ${mobileNavOpen ? "navOpen" : ""}`}>
+      <section className={`productShell ${mobileNavOpen ? "navOpen" : ""} ${view === "game" ? "gameShell" : ""}`}>
         <aside className="navPanel">
           <div className="profileCard">
             <div className="avatar">{profile.name.slice(0, 1).toUpperCase()}</div>
@@ -2928,7 +2980,7 @@ export default function App() {
                   </div>
                   <div className="planBadge">
                     <Flame size={18} />
-                    {profile.pro ? "Pro plan active" : "Starter path"}
+                    {profile.pro ? "Pro preview enabled" : "Starter path"}
                   </div>
                 </div>
 
@@ -2983,7 +3035,7 @@ export default function App() {
                 <div>
                   <span className="eyebrow">Choose your game</span>
                   <h2>Modern chess, clean setup, no wasted clicks.</h2>
-                  <p className="sectionLead">Pick a mode, choose a time control, and launch straight into a focused game page with clocks, move list, coach help, and restart controls.</p>
+                  <p className="sectionLead">Pick a mode, choose a time control, and launch into a focused game page with clocks, move list, and clean controls. Coach analysis opens only after the result.</p>
                 </div>
                 <div className="planBadge">
                   <Flame size={18} />
@@ -3011,7 +3063,7 @@ export default function App() {
                 <article className={mode === "ai" ? "playModeCard activePlayMode" : "playModeCard"}>
                   <Brain size={24} />
                   <h3>Play vs AI</h3>
-                  <p>Train against an easy, club, or master-strength bot with live coach suggestions and clean review.</p>
+                  <p>Train against an easy, club, or master-strength bot, then open post-game analysis when the result is in.</p>
                   <button className="wideButton" onClick={() => startGame("ai")}>
                     Start AI game
                   </button>
@@ -3138,182 +3190,210 @@ export default function App() {
           )}
 
           {view === "game" && (
-            <div className="gamePage">
-              <section className="gameBoardShell">
-                <div className="gameHeader">
-                  <div>
-                    <span className="eyebrow">{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</span>
-                    <h2>{aiThinking ? "AI is thinking..." : displayStatus}</h2>
-                  </div>
-                  <div className="headerActions">
-                    <button className="ghostButton" onClick={() => saveGame("manual")}>
-                      <Save size={16} />
-                      Save
-                    </button>
-                    <button className="ghostButton" onClick={backToLobby}>
-                      <Menu size={16} />
-                      Back to lobby
-                    </button>
-                  </div>
-                </div>
-
-                <div className="timerStack topTimer">
-                  <div>
-                    <span>{mode === "friend" ? roomState?.players.black?.name || "Black" : mode === "ai" ? aiProfiles[aiLevel].name : "Black"}</span>
-                    <strong>{formatClock(mode === "friend" && roomState ? roomState.remainingMs.black : blackTimeMs)}</strong>
-                  </div>
-                  <small>{activeTurn === "black" ? "Clock running" : "Waiting"}</small>
-                </div>
-
-                <div className={boardOrientation === "black" ? "board boardFlipped" : "board"} aria-label="Chess board">
-                  {board.map(({ square, piece }, index) => {
-                    const isLight = (Math.floor(index / 8) + index) % 2 === 0;
-                    const isSelected = selected === square;
-                    const isTarget = legalTargets.includes(square);
-                    const file = square[0];
-                    const rank = square[1];
-                    return (
-                      <button
-                        key={square}
-                        className={[
-                          "square",
-                          isLight ? "lightSquare" : "darkSquare",
-                          isSelected ? "selected" : "",
-                          isTarget ? "target" : "",
-                        ].join(" ")}
-                        onClick={() => handleSquareClick(square)}
-                        aria-label={square}
-                      >
-                        <span className={piece ? `piece ${piece.color}` : "piece"}>
-                          {piece ? pieceIcons[`${piece.color}${piece.type}`] : ""}
-                        </span>
-                        {file === (boardOrientation === "white" ? "a" : "h") && <span className="coord rankCoord">{rank}</span>}
-                        {rank === (boardOrientation === "white" ? "1" : "8") && <span className="coord fileCoord">{file}</span>}
+            <>
+              <div className="gamePage">
+                <section className="gameBoardShell">
+                  <div className="gameHeader">
+                    <div>
+                      <span className="eyebrow">{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</span>
+                      <h2>{aiThinking ? "AI is thinking..." : displayStatus}</h2>
+                    </div>
+                    <div className="headerActions">
+                      <button className="ghostButton" onClick={() => saveGame("manual")}>
+                        <Save size={16} />
+                        Save
                       </button>
-                    );
-                  })}
-                </div>
-
-                <div className="timerStack bottomTimer">
-                  <div>
-                    <span>{mode === "friend" ? roomState?.players.white.name || "White" : "White"}</span>
-                    <strong>{formatClock(mode === "friend" && roomState ? roomState.remainingMs.white : whiteTimeMs)}</strong>
-                  </div>
-                  <small>{activeTurn === "white" ? "Clock running" : "Waiting"}</small>
-                </div>
-
-                <div className="gameActionRow">
-                  <button className="ghostButton" onClick={resignGame}>Resign</button>
-                  <button className="ghostButton" onClick={offerDraw}>Offer draw</button>
-                  <button className="ghostButton" onClick={restartCurrentGame} disabled={roomBusy}>{mode === "friend" ? "New room" : "Restart"}</button>
-                </div>
-              </section>
-
-              <aside className="gameSideRail">
-                <div className="coachCard gameCoachCard">
-                  <div className="panelTitle">
-                    <Brain size={19} />
-                    <h3>Coach panel</h3>
-                  </div>
-                  <p>{aiThinking ? "AI is thinking. The board is locked until the black move is complete." : stockfishBusy ? "Analyzing position..." : displayStatus}</p>
-                  <div className="coachActions">
-                    <button className="ghostButton" onClick={analyzeNow}>{stockfishBusy ? "Analyzing..." : "Analyze again"}</button>
-                    <button className="ghostButton" onClick={() => setCoachMode("beginner")}>Explain simpler</button>
-                    <button
-                      className="ghostButton"
-                      onClick={() =>
-                        setToast(
-                          findBestMove(game) || history[history.length - 1]
-                            ? getMoveFeedback((findBestMove(game) || history[history.length - 1]) as Move, coachMode)
-                            : "Training tip: develop pieces, fight for the center, and secure your king before attacking.",
-                        )
-                      }
-                    >
-                      Training tip
-                    </button>
-                  </div>
-                  <div className="coachBulletPanel">
-                    <div>
-                      <span>Best move</span>
-                      <strong>{stockfishAnalysis?.bestMove || (findBestMove(game)?.san ?? "Heuristic move ready")}</strong>
-                    </div>
-                    <div>
-                      <span>Evaluation</span>
-                      <strong>{formatEvaluation(stockfishAnalysis)}</strong>
-                    </div>
-                    <div>
-                      <span>Why it works</span>
-                      <p>{coachReport[0]?.text || getCoachEmptyText(history)}</p>
-                    </div>
-                    <div>
-                      <span>Danger to avoid</span>
-                      <p>{coachReport.find((item) => item.tone === "warning")?.text || "No immediate tactical warning. Stay alert to checks and hanging pieces."}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="roomCard">
-                  <div className="panelTitle">
-                    <Users size={19} />
-                    <h3>Game info</h3>
-                  </div>
-                  <p>{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</p>
-                  {mode === "local" && (
-                    <label className="toggleRow">
-                      <span>Auto-rotate board</span>
-                      <input type="checkbox" checked={autoRotateBoard} onChange={(event) => setAutoRotateBoard(event.target.checked)} />
-                    </label>
-                  )}
-                  {roomId && (
-                    <>
-                      <code>{roomUrl}</code>
-                      <button className="wideButton" onClick={copyRoomLink}>
-                        <Copy size={16} />
-                        Copy room link
+                      <button className="ghostButton" onClick={backToLobby}>
+                        <Menu size={16} />
+                        Back to lobby
                       </button>
-                      <label>
-                        Invite by email
-                        <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="friend@example.com" />
-                      </label>
-                      <button className="ghostButton wideButton" onClick={sendInviteEmail} disabled={inviteBusy}>
-                        {inviteBusy ? "Sending invite..." : "Send invite email"}
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                <div className="movesCard">
-                  <div className="panelTitle">
-                    <History size={19} />
-                    <h3>Move history</h3>
+                    </div>
                   </div>
-                  <div className="moveList">
-                    {history.length === 0 ? (
-                      <span className="empty">Moves will appear after the game starts.</span>
-                    ) : (
-                      history.map((move, index) => (
-                        <span key={`${move.san}-${index}`}>
-                          {index % 2 === 0 ? `${Math.floor(index / 2) + 1}. ` : ""}
-                          {move.san}
-                        </span>
-                      ))
+
+                  <div className="timerStack topTimer">
+                    <div>
+                      <span>{mode === "friend" ? roomState?.players.black?.name || "Black" : mode === "ai" ? aiProfiles[aiLevel].name : "Black"}</span>
+                      <strong>{formatClock(mode === "friend" && roomState ? roomState.remainingMs.black : blackTimeMs)}</strong>
+                    </div>
+                    <small>{activeTurn === "black" ? "Clock running" : "Waiting"}</small>
+                  </div>
+
+                  <div className={boardOrientation === "black" ? "board boardFlipped" : "board"} aria-label="Chess board">
+                    {board.map(({ square, piece }, index) => {
+                      const isLight = (Math.floor(index / 8) + index) % 2 === 0;
+                      const isSelected = selected === square;
+                      const isTarget = legalTargets.includes(square);
+                      const file = square[0];
+                      const rank = square[1];
+                      return (
+                        <button
+                          key={square}
+                          className={[
+                            "square",
+                            isLight ? "lightSquare" : "darkSquare",
+                            isSelected ? "selected" : "",
+                            isTarget ? "target" : "",
+                          ].join(" ")}
+                          onClick={() => handleSquareClick(square)}
+                          aria-label={square}
+                        >
+                          <span className={piece ? `piece ${piece.color}` : "piece"}>
+                            {piece ? pieceIcons[`${piece.color}${piece.type}`] : ""}
+                          </span>
+                          {file === (boardOrientation === "white" ? "a" : "h") && <span className="coord rankCoord">{rank}</span>}
+                          {rank === (boardOrientation === "white" ? "1" : "8") && <span className="coord fileCoord">{file}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="timerStack bottomTimer">
+                    <div>
+                      <span>{mode === "friend" ? roomState?.players.white.name || "White" : "White"}</span>
+                      <strong>{formatClock(mode === "friend" && roomState ? roomState.remainingMs.white : whiteTimeMs)}</strong>
+                    </div>
+                    <small>{activeTurn === "white" ? "Clock running" : "Waiting"}</small>
+                  </div>
+
+                  <div className="gameActionRow">
+                    <button className="ghostButton" onClick={resignGame}>Resign</button>
+                    <button className="ghostButton" onClick={offerDraw}>Offer draw</button>
+                    <button className="ghostButton" onClick={restartCurrentGame} disabled={roomBusy}>{mode === "friend" ? "New room" : "Restart"}</button>
+                    {isGameFinished && (
+                      <button className="primaryButton" onClick={analyzeNow} disabled={stockfishBusy}>
+                        <Brain size={16} />
+                        {stockfishBusy ? "Opening analysis..." : "Analyze with Coach"}
+                      </button>
                     )}
                   </div>
-                </div>
+                </section>
 
-                <div className="booksGrid compactBooksGrid">
-                  {chessBooks.slice(0, 2).map((book) => (
-                    <article className="bookCard" key={`game-${book.title}`}>
-                      <span>{book.tag}</span>
-                      <h3>{book.title}</h3>
-                      <strong>{book.author}</strong>
-                      <p>{book.reason}</p>
-                      <small>{book.level}</small>
-                    </article>
-                  ))}
+                <aside className="gameSideRail">
+                  <div className="roomCard">
+                    <div className="panelTitle">
+                      <Users size={19} />
+                      <h3>Game info</h3>
+                    </div>
+                    <p>{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</p>
+                    <div className="gameMeta">
+                      <span>Status</span>
+                      <strong>{displayStatus}</strong>
+                    </div>
+                    {mode === "local" && (
+                      <label className="toggleRow">
+                        <span>Auto-rotate board</span>
+                        <input type="checkbox" checked={autoRotateBoard} onChange={(event) => setAutoRotateBoard(event.target.checked)} />
+                      </label>
+                    )}
+                    {roomId && (
+                      <>
+                        <code>{roomUrl}</code>
+                        <button className="wideButton" onClick={copyRoomLink}>
+                          <Copy size={16} />
+                          Copy room link
+                        </button>
+                        <label>
+                          Invite by email
+                          <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="friend@example.com" />
+                        </label>
+                        <button className="ghostButton wideButton" onClick={sendInviteEmail} disabled={inviteBusy}>
+                          {inviteBusy ? "Sending invite..." : "Send invite email"}
+                        </button>
+                      </>
+                    )}
+                    {!roomId && isGameFinished && (
+                      <button className="wideButton" onClick={analyzeNow} disabled={stockfishBusy}>
+                        <Brain size={16} />
+                        {stockfishBusy ? "Preparing analysis..." : "Analyze with Coach"}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="movesCard">
+                    <div className="panelTitle">
+                      <History size={19} />
+                      <h3>Move history</h3>
+                    </div>
+                    <div className="moveList">
+                      {history.length === 0 ? (
+                        <span className="empty">Moves will appear after the game starts.</span>
+                      ) : (
+                        history.map((move, index) => (
+                          <span key={`${move.san}-${index}`}>
+                            {index % 2 === 0 ? `${Math.floor(index / 2) + 1}. ` : ""}
+                            {move.san}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {showGameAnalysis && (
+                    <div className="coachCard gameCoachCard">
+                      <div className="panelTitle">
+                        <Brain size={19} />
+                        <h3>Post-game analysis</h3>
+                      </div>
+                      <p>{stockfishBusy ? "Analyzing the finished game..." : "Coach feedback is available only after the result."}</p>
+                      <div className="coachActions">
+                        <button className="ghostButton" onClick={analyzeNow}>{stockfishBusy ? "Analyzing..." : "Analyze again"}</button>
+                        <button className="ghostButton" onClick={() => setCoachMode("beginner")}>Explain simpler</button>
+                        <button className="ghostButton" onClick={() => setToast(coachReport[0]?.text || getCoachEmptyText(history))}>Training tip</button>
+                      </div>
+                      <div className="coachBulletPanel">
+                        <div>
+                          <span>Best move</span>
+                          <strong>{stockfishAnalysis?.bestMove || (findBestMove(game)?.san ?? "Fallback review ready")}</strong>
+                        </div>
+                        <div>
+                          <span>Evaluation</span>
+                          <strong>{formatEvaluation(stockfishAnalysis)}</strong>
+                        </div>
+                        <div>
+                          <span>Why it works</span>
+                          <p>{coachReport[0]?.text || getCoachEmptyText(history)}</p>
+                        </div>
+                        <div>
+                          <span>Danger to avoid</span>
+                          <p>{coachReport.find((item) => item.tone === "warning")?.text || "No immediate tactical warning. Review checks, captures, and king safety in the critical moment."}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </aside>
+              </div>
+
+              {isGameFinished && (
+                <div className="gameResources">
+                  <div className="booksGrid compactBooksGrid">
+                    {chessBooks.slice(0, 2).map((book) => (
+                      <article className="bookCard" key={`game-${book.title}`}>
+                        <span>{book.tag}</span>
+                        <h3>{book.title}</h3>
+                        <strong>{book.author}</strong>
+                        <p>{book.reason}</p>
+                        <small>{book.level}</small>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="roomCard">
+                    <div className="panelTitle">
+                      <History size={18} />
+                      <h3>What to do next</h3>
+                    </div>
+                    <p>Save the game, open Coach analysis, and compare the critical moment with one recommended book chapter before your next session.</p>
+                    <div className="recentGames">
+                      {savedGames.slice(0, 2).map((savedGame) => (
+                        <div key={`post-${savedGame.id}`} className="recentGameRow">
+                          <strong>{savedGame.result}</strong>
+                          <span>{savedGame.mode} · {savedGame.moves.length} moves</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </aside>
-            </div>
+              )}
+            </>
           )}
 
           {view === "puzzles" && (
@@ -3838,7 +3918,7 @@ export default function App() {
           )}
         </section>
 
-        <aside className="rightRail">
+        {view !== "game" && <aside className="rightRail">
           <div className="profileEditor">
             <div className="panelTitle">
               <KeyRound size={18} />
@@ -4056,7 +4136,7 @@ export default function App() {
               </div>
             </div>
           </div>
-        </aside>
+        </aside>}
       </section>
       )}
 
