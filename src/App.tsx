@@ -131,6 +131,7 @@ type AnalysisMoveReview = {
 
 type SavedGameAnalysis = {
   gameId: string;
+  coachMode: CoachMode;
   moveReviews: AnalysisMoveReview[];
   summary: {
     accuracy: number;
@@ -141,6 +142,12 @@ type SavedGameAnalysis = {
     endgameAdvice: string;
     training: string[];
   };
+};
+
+type AnalysisReplay = {
+  initialFen: string;
+  moves: Move[];
+  positions: string[];
 };
 
 type CoachInsight = {
@@ -182,6 +189,8 @@ type PendingPromotion = {
   to: Square;
   color: "white" | "black";
 };
+
+type RoomConnectionState = "idle" | "joining" | "waiting" | "ready" | "disconnected" | "error";
 
 type GameOutcomeReason =
   | "in-progress"
@@ -1263,6 +1272,22 @@ function makeStarterPuzzleSet() {
   return [...puzzles, ...Array.from({ length: 6 }, (_, index) => makeGeneratedPuzzle(puzzles.length + index))];
 }
 
+function topUpPuzzlePool(puzzleList: Puzzle[], minimumPerDifficulty = 8) {
+  const nextList = [...puzzleList];
+  const difficulties: PuzzleDifficulty[] = ["easy", "medium", "hard"];
+
+  for (const difficulty of difficulties) {
+    let existingCount = nextList.filter((puzzle) => getPuzzleDifficulty(puzzle) === difficulty).length;
+    while (existingCount < minimumPerDifficulty) {
+      const nextPuzzle = makeGeneratedPuzzle(nextList.length, difficulty);
+      nextList.push(nextPuzzle);
+      existingCount += 1;
+    }
+  }
+
+  return nextList;
+}
+
 function getCapturedPieces(history: Move[]) {
   return history
     .filter((move) => move.captured)
@@ -1453,22 +1478,15 @@ function buildGameStatus(params: {
   };
 }
 
-function replayGameToMove(moves: Move[], moveIndex: number) {
-  const replay = new Chess();
-  const safeMoveCount = Math.max(0, Math.min(moves.length, moveIndex));
-  for (let index = 0; index < safeMoveCount; index += 1) {
-    const move = moves[index];
-    try {
-      replay.move({
-        from: move.from,
-        to: move.to,
-        promotion: move.promotion || "q",
-      });
-    } catch {
-      break;
-    }
+function replayGameToMove(replay: AnalysisReplay | null, moveIndex: number) {
+  if (!replay) return new Chess();
+  const safeMoveCount = Math.max(0, Math.min(replay.positions.length - 1, moveIndex));
+  const fen = replay.positions[safeMoveCount] || replay.initialFen;
+  try {
+    return new Chess(fen);
+  } catch {
+    return new Chess();
   }
-  return replay;
 }
 
 function coachCopyByMode(mode: CoachMode, beginner: string, intermediate: string, advanced: string) {
@@ -1643,11 +1661,11 @@ function analyzeGame(history: Move[], game: Chess, analysis: StockfishAnalysis |
   return insights;
 }
 
-function parseSavedGameMoves(savedGame: SavedGame) {
-  const replay = new Chess();
+function parseSavedGameMoves(savedGame: SavedGame): AnalysisReplay {
   let moves: Move[] = [];
+  const replay = new Chess();
 
-  if (savedGame.pgn) {
+  if (savedGame.pgn.trim()) {
     try {
       replay.loadPgn(savedGame.pgn);
       moves = replay.history({ verbose: true });
@@ -1673,23 +1691,29 @@ function parseSavedGameMoves(savedGame: SavedGame) {
     moves = rebuilt;
   }
 
-  const positions = [new Chess().fen()];
+  const initialFen = new Chess().fen();
+  const positions = [initialFen];
   const builder = new Chess();
-  moves.forEach((move) => {
+
+  for (const move of moves) {
     try {
       const applied = builder.move({
         from: move.from,
         to: move.to,
         promotion: move.promotion || "q",
       });
-      if (applied) {
-        positions.push(builder.fen());
-      }
+      if (!applied) break;
+      positions.push(builder.fen());
     } catch {
-      // Stop at the last reliable position instead of crashing analysis playback.
+      break;
     }
-  });
-  return { moves, positions };
+  }
+
+  return {
+    initialFen,
+    moves: moves.slice(0, Math.max(0, positions.length - 1)),
+    positions,
+  };
 }
 
 function extractMovesFromPgn(pgn: string) {
@@ -1995,7 +2019,7 @@ export default function App() {
   const [lessonProgress, setLessonProgress] = useState<Record<string, number>>(() =>
     loadJson("cm-lesson-progress", makeLessonProgressDefaults()),
   );
-  const [puzzleSet, setPuzzleSet] = useState<Puzzle[]>(() => loadJson("cm-puzzle-set", makeStarterPuzzleSet()));
+  const [puzzleSet, setPuzzleSet] = useState<Puzzle[]>(() => loadJson("cm-puzzle-set", topUpPuzzlePool(makeStarterPuzzleSet())));
   const [selectedPuzzleIndex, setSelectedPuzzleIndex] = useState(0);
   const [puzzleGame, setPuzzleGame] = useState(() => loadPuzzleGame(0));
   const [puzzleSelected, setPuzzleSelected] = useState<Square | null>(null);
@@ -2012,6 +2036,7 @@ export default function App() {
   const [stockfishAnalysis, setStockfishAnalysis] = useState<StockfishAnalysis | null>(null);
   const [friendColor, setFriendColor] = useState<"white" | "black" | null>(null);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
+  const [roomConnectionState, setRoomConnectionState] = useState<RoomConnectionState>("idle");
   const [roomBusy, setRoomBusy] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
@@ -2075,15 +2100,11 @@ export default function App() {
     () => (selectedAnalysisGame ? parseSavedGameMoves(selectedAnalysisGame) : null),
     [selectedAnalysisGame],
   );
-  const analysisTimelineMoves = useMemo(
-    () => (analysisReplay ? analysisReplay.moves.slice(0, Math.max(0, analysisReplay.positions.length - 1)) : []),
-    [analysisReplay],
-  );
-  const maxAnalysisIndex = analysisReplay ? Math.max(0, analysisReplay.positions.length - 1) : 0;
+  const analysisTimelineMoves = analysisReplay?.moves || [];
+  const maxAnalysisIndex = analysisTimelineMoves.length;
   const analysisPosition = useMemo(() => {
-    if (!analysisReplay) return new Chess();
-    return replayGameToMove(analysisTimelineMoves, clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex));
-  }, [analysisReplay, analysisTimelineMoves, analysisMoveIndex]);
+    return replayGameToMove(analysisReplay, analysisMoveIndex);
+  }, [analysisReplay, analysisMoveIndex]);
   const analysisBoard = useMemo(() => createBoard(analysisPosition), [analysisPosition]);
   const selectedAnalysis = selectedAnalysisGameId ? analysisCache[selectedAnalysisGameId] || null : null;
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -2244,14 +2265,9 @@ export default function App() {
   }, [puzzleDifficulty]);
 
   useEffect(() => {
-    const starterSet = makeStarterPuzzleSet();
-    if (puzzleSet.length >= starterSet.length) return;
-
-    const existingTitles = new Set(puzzleSet.map((puzzle) => puzzle.title));
-    const missing = starterSet.filter((puzzle) => !existingTitles.has(puzzle.title));
-    if (missing.length === 0) return;
-
-    setPuzzleSet((current) => [...current, ...missing]);
+    const toppedUp = topUpPuzzlePool(puzzleSet);
+    if (toppedUp.length === puzzleSet.length) return;
+    setPuzzleSet(toppedUp);
   }, [puzzleSet]);
 
   useEffect(() => {
@@ -2283,8 +2299,9 @@ export default function App() {
 
         if (sessionUser) {
           setProfile(mapUserToProfile(sessionUser.user));
-          setSocketSessionTokenState(sessionUser.socketToken);
-          setSocketToken(sessionUser.socketToken);
+          const liveToken = sessionUser.socketToken || sessionUser.sessionToken;
+          setSocketSessionTokenState(liveToken);
+          setSocketToken(liveToken);
         }
       } catch (error) {
         if (!cancelled) {
@@ -2347,6 +2364,20 @@ export default function App() {
   }, [profile.signedIn, profile.city]);
 
   useEffect(() => {
+    if (!analysisReplay) {
+      if (analysisMoveIndex !== 0) {
+        setAnalysisMoveIndex(0);
+      }
+      return;
+    }
+
+    const clamped = clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex);
+    if (clamped !== analysisMoveIndex) {
+      setAnalysisMoveIndex(clamped);
+    }
+  }, [analysisReplay, analysisMoveIndex]);
+
+  useEffect(() => {
     const handlePopState = () => {
       const nextRoomId = getRoomIdFromLocation();
       const nextAnalysisId = getAnalysisIdFromLocation();
@@ -2377,6 +2408,7 @@ export default function App() {
     if (!profile.signedIn || !roomId) return;
 
     let cancelled = false;
+    setRoomConnectionState("joining");
     getRoom(roomId)
       .then((response) => {
         if (cancelled) return;
@@ -2386,10 +2418,12 @@ export default function App() {
           setMode("friend");
           setView("game");
           syncGame(new Chess(response.state.fen));
+          setRoomConnectionState(response.state.waitingForOpponent ? "waiting" : "ready");
         }
       })
       .catch((error) => {
         if (cancelled) return;
+        setRoomConnectionState("error");
         setToast(normalizeAuthMessage(error instanceof Error ? error.message : "Unable to load room.", profile.signedIn));
       });
 
@@ -2402,19 +2436,24 @@ export default function App() {
     if (!profile.signedIn || !roomId || !socketSessionToken) return;
 
     const socket = getSocket();
+    socket.auth = { token: socketSessionToken };
 
     const handleRoomState = (nextState: RoomState) => {
       setRoomState(nextState);
       syncGame(new Chess(nextState.fen));
+      setRoomConnectionState(nextState.waitingForOpponent ? "waiting" : nextState.status === "opponent disconnected" ? "disconnected" : "ready");
     };
 
     const handleConnectError = (error: Error) => {
+      setRoomConnectionState("error");
       setToast(normalizeAuthMessage(error?.message || "Live room connection failed.", profile.signedIn));
     };
     const handleRoomError = (payload: { error?: string }) => {
+      setRoomConnectionState("error");
       setToast(normalizeAuthMessage(payload?.error || "Live room connection failed.", profile.signedIn));
     };
     const handlePlayerJoined = (payload: { player?: { name?: string } | null }) => {
+      setRoomConnectionState("ready");
       if (payload?.player?.name) {
         setToast(`${payload.player.name} joined the room as Black.`);
       }
@@ -2424,6 +2463,7 @@ export default function App() {
       setToast(`${payload.move.color === "white" ? "White" : "Black"} played ${payload.move.san}.`);
     };
     const handleOpponentDisconnected = () => {
+      setRoomConnectionState("disconnected");
       setToast("Opponent disconnected. The room will stay open if they come back.");
     };
 
@@ -2444,6 +2484,7 @@ export default function App() {
       { roomId },
         (response: { ok: boolean; error?: string; color?: "white" | "black"; state?: RoomState }) => {
           if (!response?.ok || !response.state) {
+            setRoomConnectionState("error");
             setToast(normalizeAuthMessage(response?.error || "Unable to join room.", profile.signedIn));
             return;
           }
@@ -2453,6 +2494,7 @@ export default function App() {
         setView("game");
         setRoomState(response.state);
         syncGame(new Chess(response.state.fen));
+        setRoomConnectionState(response.state.waitingForOpponent ? "waiting" : "ready");
         setToast(response.state.waitingForOpponent ? "Room created. Waiting for opponent." : "Friend room connected.");
       },
     );
@@ -2471,6 +2513,7 @@ export default function App() {
       socket.off("moveMade", handleMoveMade);
       socket.off("opponentDisconnected", handleOpponentDisconnected);
       socket.disconnect();
+      setRoomConnectionState("idle");
     };
   }, [profile.signedIn, roomId, socketSessionToken]);
 
@@ -2815,6 +2858,7 @@ export default function App() {
       setFriendColor("white");
       setInviteEmail("");
       setRoomState(room.state);
+      setRoomConnectionState("waiting");
       resetLocalClock(selectedTimeControl);
       openGameView(roomPath(room.roomId));
       syncGame(new Chess(room.state.fen));
@@ -2846,6 +2890,7 @@ export default function App() {
     setAnalysisOpen(false);
     setRoomId("");
     setRoomState(null);
+    setRoomConnectionState("idle");
     setFriendColor(null);
     setSelected(null);
     setLegalTargets([]);
@@ -3010,8 +3055,9 @@ export default function App() {
           ? await registerUser({ name, email, password, city })
           : await loginUser({ email, password });
       setProfile(mapUserToProfile(session.user));
-      setSocketSessionTokenState(session.socketToken);
-      setSocketToken(session.socketToken);
+      const liveToken = session.socketToken || session.sessionToken;
+      setSocketSessionTokenState(liveToken);
+      setSocketToken(liveToken);
       setView(roomId ? "game" : "home");
       setAuthErrors({});
       setAuthNotice({
@@ -3041,6 +3087,7 @@ export default function App() {
     setView("home");
     setRoomId("");
     setRoomState(null);
+    setRoomConnectionState("idle");
     setFriendColor(null);
     setSocketSessionTokenState("");
     setSocketToken("");
@@ -3321,7 +3368,7 @@ export default function App() {
     setAnalysisError(null);
     window.history.replaceState(null, "", analysisPath(savedGame.id));
 
-    if (analysisCache[savedGame.id]) {
+    if (analysisCache[savedGame.id]?.coachMode === coachMode) {
       setToast("Saved analysis opened.");
       return;
     }
@@ -3400,6 +3447,7 @@ export default function App() {
 
       const analysisResult: SavedGameAnalysis = {
         gameId: savedGame.id,
+        coachMode,
         moveReviews,
         summary: {
           accuracy,
@@ -4168,13 +4216,22 @@ export default function App() {
                         {aiThinking ? "AI is thinking..." : gamePresentation.headline}
                       </div>
                       <h2>{aiThinking ? "Waiting for the engine reply" : gamePresentation.detail}</h2>
-                      {mode === "friend" && roomState?.waitingForOpponent && (
+                      {mode === "friend" && roomConnectionState === "joining" && (
+                        <p className="gameSubstatus">Connecting the live room and restoring the latest board state.</p>
+                      )}
+                      {mode === "friend" && roomConnectionState === "waiting" && (
                         <p className="gameSubstatus">Share the invite link. White is ready and Black can join straight from the room URL.</p>
                       )}
-                      {mode === "friend" && roomState?.status === "opponent disconnected" && (
+                      {mode === "friend" && roomConnectionState === "disconnected" && (
                         <p className="gameSubstatus">Your opponent disconnected. The room stays active, so they can reconnect from the same link.</p>
                       )}
-                      {!roomState?.waitingForOpponent && !aiThinking && !gamePresentation.finished && gamePresentation.reason !== "check" && (
+                      {mode === "friend" && roomConnectionState === "error" && (
+                        <p className="gameSubstatus">The room connection needs attention. Refresh or rejoin once your session is stable.</p>
+                      )}
+                      {mode === "friend" && roomConnectionState === "ready" && !gamePresentation.finished && (
+                        <p className="gameSubstatus">Live room connected. Moves, clocks, and status will stay in sync for both players.</p>
+                      )}
+                      {mode !== "friend" && !aiThinking && !gamePresentation.finished && gamePresentation.reason !== "check" && (
                         <p className="gameSubstatus">Use the board, clocks, and move list without the layout shifting when the position gets sharp.</p>
                       )}
                     </div>

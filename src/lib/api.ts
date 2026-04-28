@@ -82,6 +82,10 @@ function getStoredSessionToken() {
   }
 }
 
+export function getPersistedSessionToken() {
+  return getStoredSessionToken();
+}
+
 function storeSessionToken(token: string) {
   try {
     if (token) {

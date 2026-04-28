@@ -525,7 +525,7 @@ io.on("connection", (socket) => {
     return;
   }
 
-  socket.on("room:join", (payload, callback) => {
+  const handleJoinRoom = (payload, callback) => {
     if (!payload?.roomId || typeof payload.roomId !== "string") {
       callback?.({ ok: false, error: "Room ID is required." });
       return;
@@ -557,9 +557,9 @@ io.on("connection", (socket) => {
       color: joinResult.color,
       state,
     });
-  });
+  };
 
-  socket.on("room:move", async (payload, callback) => {
+  const handleMakeMove = async (payload, callback) => {
     const moveResult = roomManager.makeMove(payload.roomId, user.id, payload);
     if (!moveResult.ok) {
       callback?.(moveResult);
@@ -584,9 +584,9 @@ io.on("connection", (socket) => {
     if (moveResult.finished) {
       await persistFinishedGame(moveResult.room, moveResult);
     }
-  });
+  };
 
-  socket.on("room:sync", (payload, callback) => {
+  const handleRoomSync = (payload, callback) => {
     const result = roomManager.syncRoom(payload.roomId);
     if (!result.ok) {
       callback?.(result);
@@ -596,9 +596,9 @@ io.on("connection", (socket) => {
     io.to(result.room.id).emit("room:state", state);
     io.to(result.room.id).emit("gameState", state);
     callback?.({ ok: true, state });
-  });
+  };
 
-  socket.on("room:resign", async (payload, callback) => {
+  const handleResign = async (payload, callback) => {
     const result = roomManager.resign(payload.roomId, user.id);
     if (!result.ok) {
       callback?.(result);
@@ -611,9 +611,9 @@ io.on("connection", (socket) => {
     if (result.finished) {
       await persistFinishedGame(result.room, result);
     }
-  });
+  };
 
-  socket.on("room:draw", async (payload, callback) => {
+  const handleOfferDraw = async (payload, callback) => {
     const result = roomManager.draw(payload.roomId);
     if (!result.ok) {
       callback?.(result);
@@ -626,7 +626,17 @@ io.on("connection", (socket) => {
     if (result.finished) {
       await persistFinishedGame(result.room, result);
     }
-  });
+  };
+
+  socket.on("room:join", handleJoinRoom);
+  socket.on("joinRoom", handleJoinRoom);
+  socket.on("room:move", handleMakeMove);
+  socket.on("makeMove", handleMakeMove);
+  socket.on("room:sync", handleRoomSync);
+  socket.on("room:resign", handleResign);
+  socket.on("resign", handleResign);
+  socket.on("room:draw", handleOfferDraw);
+  socket.on("offerDraw", handleOfferDraw);
 
   socket.on("disconnect", () => {
     if (!socket.data.roomId) return;
