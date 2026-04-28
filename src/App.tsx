@@ -3021,6 +3021,8 @@ export default function App() {
 
   function buildSavedGameSnapshot(): SavedGame {
     const now = new Date().toISOString();
+    const verboseHistory = game.history({ verbose: true });
+    const sanHistory = game.history();
     const opponentName =
       mode === "friend"
         ? roomState?.players.black?.name || roomState?.players.white.name || "Friend"
@@ -3033,8 +3035,8 @@ export default function App() {
       date: now,
       mode,
       result: resultOverride || getResult(game),
-      moves: history.map((move) => move.san),
-      uciMoves: history.map((move) => `${move.from}${move.to}${move.promotion || ""}`),
+      moves: sanHistory,
+      uciMoves: verboseHistory.map((move) => `${move.from}${move.to}${move.promotion || ""}`),
       pgn: game.pgn(),
       initialFen: new Chess().fen(),
       finalFen: game.fen(),
