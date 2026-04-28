@@ -19,10 +19,17 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  overflow-x: hidden;
 }
 
 button,
@@ -32,6 +39,8 @@ input {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition:
     transform 140ms ease,
     background 140ms ease,
@@ -44,6 +53,10 @@ button:disabled {
   cursor: wait;
   opacity: 0.72;
   transform: none;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.985);
 }
 
 .app {
@@ -209,6 +222,8 @@ h2 {
 
 .topActions {
   gap: 9px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .iconButton,
@@ -245,7 +260,7 @@ h2 {
 .primaryButton,
 .wideButton {
   gap: 8px;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 14px;
 }
 
@@ -425,6 +440,7 @@ h2 {
 .mainStage {
   min-width: 0;
   padding: 14px;
+  overflow-x: hidden;
 }
 
 .welcomeGate {
@@ -2821,6 +2837,10 @@ h2 {
   .analysisLayout {
     grid-template-columns: 1fr;
   }
+
+  .board {
+    width: min(88vw, 72vh, 640px);
+  }
 }
 
 @media (max-width: 760px) {
@@ -2830,6 +2850,7 @@ h2 {
 
   .topbar {
     top: 8px;
+    padding: 8px;
   }
 
   .brand p,
@@ -2846,6 +2867,7 @@ h2 {
 
   .productShell {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .navPanel {
@@ -2968,6 +2990,7 @@ h2 {
   .board {
     width: min(100%, 92vw);
     max-width: min(92vw, calc(100vh - 280px));
+    min-width: 0;
   }
 
   .leaderRow {
@@ -2983,5 +3006,144 @@ h2 {
 
   .detailStats {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 639px) {
+  .app {
+    padding: 10px 10px 94px;
+  }
+
+  .topbar {
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .brand {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .brand > div {
+    min-width: 0;
+  }
+
+  .brandMark {
+    width: 42px;
+    height: 42px;
+    font-size: 24px;
+  }
+
+  h1 {
+    font-size: 1.08rem;
+  }
+
+  .welcomeGate {
+    grid-template-columns: 1fr;
+    padding: 0;
+  }
+
+  .welcomeHero,
+  .welcomeAuthPanel {
+    padding: 18px;
+  }
+
+  .welcomeBenefits,
+  .utilityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .navPanel {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+  }
+
+  .navList {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .navList button {
+    min-height: 56px;
+    padding: 8px 6px;
+    font-size: 0.8rem;
+  }
+
+  .gameStatusPanel {
+    min-height: 0;
+  }
+
+  .gameHeader h2 {
+    min-height: 0;
+    font-size: clamp(1.45rem, 10vw, 2.25rem);
+  }
+
+  .gameSubstatus {
+    min-height: 0;
+    font-size: 0.96rem;
+  }
+
+  .timerStack strong {
+    font-size: clamp(1.5rem, 9vw, 2rem);
+  }
+
+  .board {
+    width: min(90vw, calc(100vh - 250px));
+    border-width: 8px;
+  }
+
+  .piece {
+    font-size: clamp(1.45rem, 9vw, 3.4rem);
+  }
+
+  .coord {
+    font-size: 0.62rem;
+  }
+
+  .gameActionRow,
+  .analysisControls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gameActionRow button,
+  .analysisControls button,
+  .headerActions button,
+  .coachActions button,
+  .wideButton,
+  .ghostButton,
+  .primaryButton {
+    min-height: 46px;
+  }
+
+  .moveList,
+  .analysisMoveList {
+    max-height: none;
+  }
+
+  .analysisBoardShell,
+  .analysisSideRail {
+    padding: 12px;
+  }
+
+  .analysisStatusBar,
+  .analysisMiniStats {
+    gap: 8px;
+  }
+
+  .analysisMiniStats {
+    font-size: 0.82rem;
+  }
+
+  .analysisMoveButton {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .coachBulletPanel > div {
+    padding: 12px;
+  }
+
+  .roomCard code {
+    font-size: 0.84rem;
   }
 }

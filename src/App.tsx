@@ -33,6 +33,8 @@ import {
   Swords,
   Trophy,
   Users,
+  Volume2,
+  VolumeX,
   Zap,
 } from "lucide-react";
 import {
@@ -52,6 +54,7 @@ import {
   type RoomState,
 } from "./lib/api";
 import { getSocket, setSocketToken } from "./lib/socket";
+import { playBoardSound } from "./lib/sounds";
 import { analyzeFen, canUseStockfish, type StockfishAnalysis } from "./lib/stockfish";
 
 type BoardSquare = {
@@ -109,12 +112,18 @@ type SavedGame = {
   result: string;
   moves: string[];
   pgn: string;
+  initialFen?: string;
+  finalFen?: string;
   coach: CoachInsight[];
   city: string;
   reviewScore: number | null;
   status?: string;
   timeControl?: string;
   opponent?: string;
+  players?: {
+    white: string;
+    black: string;
+  };
 };
 
 type AnalysisMoveReview = {
@@ -1990,6 +1999,7 @@ export default function App() {
   const [history, setHistory] = useState<Move[]>([]);
   const [theme, setTheme] = useState<ThemeName>(() => normalizeTheme(loadJson("cm-theme", "midnight")));
   const [language, setLanguage] = useState<Language>(() => loadJson("cm-language", "en"));
+  const [soundEnabled, setSoundEnabled] = useState(() => loadJson("cm-sound-enabled", true));
   const [view, setView] = useState<View>(initialAnalysisId || isAnalysisPath() ? "analysis" : initialRoomId || isGamePath() ? "game" : "home");
   const [mode, setMode] = useState<LocalGameMode>(initialRoomId ? "friend" : "ai");
   const [aiLevel, setAiLevel] = useState<AiLevel>(() => loadJson("cm-ai-level", "medium"));
@@ -2051,6 +2061,7 @@ export default function App() {
   const lastSavedFen = useRef("");
   const authPanelRef = useRef<HTMLDivElement | null>(null);
   const lastRoomStateRef = useRef<RoomState | null>(null);
+  const lastSoundSignatureRef = useRef("");
 
   const board = useMemo(() => createBoard(game), [game]);
   const capturedPieces = useMemo(() => getCapturedPieces(history), [history]);
@@ -2233,6 +2244,10 @@ export default function App() {
   }, [language]);
 
   useEffect(() => {
+    localStorage.setItem("cm-sound-enabled", JSON.stringify(soundEnabled));
+  }, [soundEnabled]);
+
+  useEffect(() => {
     localStorage.setItem("cm-ai-level", JSON.stringify(aiLevel));
   }, [aiLevel]);
 
@@ -2340,6 +2355,8 @@ export default function App() {
             result: String(item.result || "*"),
             moves: extractMovesFromPgn(pgn),
             pgn,
+            initialFen: new Chess().fen(),
+            finalFen: String(item.fen || ""),
             coach: [],
             city: profile.city,
             reviewScore: null,
@@ -2355,6 +2372,10 @@ export default function App() {
                     ) || "Friend",
                   )
                 : aiProfiles[aiLevel].name,
+            players: {
+              white: String((item.white as { name?: string } | undefined)?.name || "White"),
+              black: String((item.black as { name?: string } | undefined)?.name || "Black"),
+            },
           };
         }) as SavedGame[];
         setSavedGames(mapped);
@@ -2563,6 +2584,28 @@ export default function App() {
   }, [mode, roomState]);
 
   useEffect(() => {
+    if (view !== "game") {
+      lastSoundSignatureRef.current = "";
+      return;
+    }
+
+    const signature = `${mode}:${roomId || "local"}:${game.fen()}:${history.length}:${gamePresentation.reason}:${roomState?.status || ""}`;
+    if (signature === lastSoundSignatureRef.current) return;
+    lastSoundSignatureRef.current = signature;
+
+    if (history.length === 0) return;
+    const latestMove = history[history.length - 1];
+    if (!latestMove) return;
+
+    if (isGameFinished && (gamePresentation.reason === "timeout" || gamePresentation.reason === "resignation")) {
+      playBoardSound("gameover", soundEnabled);
+      return;
+    }
+
+    queueMoveSounds(latestMove, game);
+  }, [view, mode, roomId, game, history, roomState?.status, gamePresentation.reason, soundEnabled]);
+
+  useEffect(() => {
     if (view !== "game" || mode === "friend") return;
     if (isGameFinished) return;
 
@@ -2612,6 +2655,38 @@ export default function App() {
       return;
     }
     setBlackTimeMs((current) => current + increment);
+  }
+
+  function toggleSound() {
+    setSoundEnabled((current) => {
+      const next = !current;
+      setToast(next ? "Chess sounds enabled." : "Chess sounds muted.");
+      return next;
+    });
+  }
+
+  function queueMoveSounds(move: Move, nextGame: Chess) {
+    const soundQueue: Array<{ kind: Parameters<typeof playBoardSound>[0]; delay?: number }> = [];
+
+    if (move.promotion) {
+      soundQueue.push({ kind: "promotion" });
+    } else if (move.san === "O-O" || move.san === "O-O-O") {
+      soundQueue.push({ kind: "castle" });
+    } else if (move.captured) {
+      soundQueue.push({ kind: "capture" });
+    } else {
+      soundQueue.push({ kind: "move" });
+    }
+
+    if (nextGame.isCheckmate()) {
+      soundQueue.push({ kind: "gameover", delay: 110 });
+    } else if (nextGame.isCheck()) {
+      soundQueue.push({ kind: "check", delay: 90 });
+    } else if (nextGame.isDraw()) {
+      soundQueue.push({ kind: "gameover", delay: 90 });
+    }
+
+    soundQueue.forEach(({ kind, delay }) => playBoardSound(kind, soundEnabled, delay ?? 0));
   }
 
   function openGameView(path = gamePath()) {
@@ -2702,6 +2777,7 @@ export default function App() {
     setLegalTargets([]);
 
     if (!move) {
+      playBoardSound("illegal", soundEnabled);
       setToast("Move could not be completed.");
       return;
     }
@@ -2718,6 +2794,7 @@ export default function App() {
         },
         (response: { ok: boolean; error?: string; state?: RoomState }) => {
           if (!response?.ok) {
+            playBoardSound("illegal", soundEnabled);
             setToast(normalizeAuthMessage(response?.error || "Move rejected.", profile.signedIn));
             return;
           }
@@ -2785,6 +2862,7 @@ export default function App() {
     if (!movePreview) {
       setSelected(null);
       setLegalTargets([]);
+      playBoardSound("illegal", soundEnabled);
       if (piece && piece.color === friendlyColor) {
         setSelected(square);
         setLegalTargets(game.moves({ square, verbose: true }).map((target) => target.to));
@@ -2805,6 +2883,13 @@ export default function App() {
 
   function buildSavedGameSnapshot(): SavedGame {
     const now = new Date().toISOString();
+    const opponentName =
+      mode === "friend"
+        ? roomState?.players.black?.name || roomState?.players.white.name || "Friend"
+        : mode === "ai"
+          ? aiProfiles[aiLevel].name
+          : "Local board";
+
     return {
       id: crypto.randomUUID(),
       date: now,
@@ -2812,17 +2897,18 @@ export default function App() {
       result: resultOverride || getResult(game),
       moves: history.map((move) => move.san),
       pgn: game.pgn(),
+      initialFen: new Chess().fen(),
+      finalFen: game.fen(),
       coach: coachReport,
       city: profile.city,
       reviewScore,
       status: `${gamePresentation.headline} — ${gamePresentation.detail}`,
       timeControl: getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl),
-      opponent:
-        mode === "friend"
-          ? roomState?.players.black?.name || roomState?.players.white.name || "Friend"
-          : mode === "ai"
-            ? aiProfiles[aiLevel].name
-            : "Local board",
+      opponent: opponentName,
+      players: {
+        white: mode === "friend" ? roomState?.players.white.name || "White" : "White",
+        black: mode === "friend" ? roomState?.players.black?.name || "Black" : opponentName,
+      },
     };
   }
 
@@ -2911,6 +2997,7 @@ export default function App() {
       const socket = getSocket();
       socket.emit("room:draw", { roomId }, (response: { ok: boolean; error?: string; state?: RoomState }) => {
         if (!response?.ok) {
+          playBoardSound("illegal", soundEnabled);
           setToast(normalizeAuthMessage(response?.error || "Draw request failed.", profile.signedIn));
           return;
         }
@@ -2918,6 +3005,7 @@ export default function App() {
           setRoomState(response.state);
           syncGame(new Chess(response.state.fen));
         }
+        playBoardSound("gameover", soundEnabled);
         setToast("Draw agreed.");
       });
       return;
@@ -2925,6 +3013,7 @@ export default function App() {
 
     setResultOverride("1/2-1/2");
     setStatusOverride("Draw agreed");
+    playBoardSound("gameover", soundEnabled);
     setToast("Draw agreed.");
   }
 
@@ -2933,6 +3022,7 @@ export default function App() {
       const socket = getSocket();
       socket.emit("room:resign", { roomId }, (response: { ok: boolean; error?: string; state?: RoomState }) => {
         if (!response?.ok) {
+          playBoardSound("illegal", soundEnabled);
           setToast(normalizeAuthMessage(response?.error || "Resign failed.", profile.signedIn));
           return;
         }
@@ -2940,6 +3030,7 @@ export default function App() {
           setRoomState(response.state);
           syncGame(new Chess(response.state.fen));
         }
+        playBoardSound("gameover", soundEnabled);
         setToast("Game ended by resignation.");
       });
       return;
@@ -2952,6 +3043,7 @@ export default function App() {
       setResultOverride("1-0");
       setStatusOverride("Black resigned");
     }
+    playBoardSound("gameover", soundEnabled);
     setToast("Game ended by resignation.");
   }
 
@@ -3275,6 +3367,7 @@ export default function App() {
     } else {
       setPuzzleGame(loadPuzzleGame(selectedPuzzleIndex, puzzleSet));
       setPuzzleMessage(`Not quite. ${getPuzzleHint(selectedPuzzle)}`);
+      playBoardSound("illegal", soundEnabled);
       setToast("Puzzle reset. Try again with the hint.");
     }
   }
@@ -3330,18 +3423,14 @@ export default function App() {
 
   function openSavedGameView(savedGame: SavedGame) {
     const replayData = parseSavedGameMoves(savedGame);
-    const replay = new Chess();
-    replayData.moves.forEach((move) => {
+    const replay = replayGameToMove(replayData, replayData.moves.length);
+    if (replayData.moves.length === 0 && savedGame.finalFen) {
       try {
-        replay.move({
-          from: move.from,
-          to: move.to,
-          promotion: move.promotion || "q",
-        });
+        replay.load(savedGame.finalFen);
       } catch {
-        // Keep the last reliable reconstructed position.
+        // Keep the default board if the saved final FEN is invalid.
       }
-    });
+    }
 
     setMode(savedGame.mode === "ai" ? "ai" : "local");
     setRoomId("");
@@ -3361,9 +3450,11 @@ export default function App() {
     );
   }
 
-  async function analyzeSavedGame(savedGame: SavedGame) {
+  async function analyzeSavedGame(savedGame: SavedGame, options?: { preserveSelection?: boolean }) {
     setSelectedAnalysisGameId(savedGame.id);
-    setAnalysisMoveIndex(0);
+    if (!options?.preserveSelection) {
+      setAnalysisMoveIndex(0);
+    }
     setView("analysis");
     setAnalysisError(null);
     window.history.replaceState(null, "", analysisPath(savedGame.id));
@@ -3476,6 +3567,13 @@ export default function App() {
       setAnalysisPending(false);
     }
   }
+
+  useEffect(() => {
+    if (view !== "analysis" || !selectedAnalysisGame || analysisPending) return;
+    const cached = analysisCache[selectedAnalysisGame.id];
+    if (cached?.coachMode === coachMode) return;
+    void analyzeSavedGame(selectedAnalysisGame, { preserveSelection: true });
+  }, [analysisCache, analysisPending, coachMode, selectedAnalysisGame, view]);
 
   async function joinCommunityRoom(label: string) {
     setMode("friend");
@@ -3637,6 +3735,9 @@ export default function App() {
           </button>
           <button className="iconButton" onClick={cycleTheme} aria-label="Toggle theme">
             {theme === "classic" ? <Sun size={18} /> : theme === "midnight" ? <Moon size={18} /> : theme === "royal" ? <Crown size={18} /> : <Sparkles size={18} />}
+          </button>
+          <button className="iconButton" onClick={toggleSound} aria-label={soundEnabled ? "Mute chess sounds" : "Enable chess sounds"}>
+            {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
           {profile.signedIn ? (
             <button className="authButton" onClick={signOut}>
