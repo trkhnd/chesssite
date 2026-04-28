@@ -1499,6 +1499,47 @@ function replayGameToMove(replay: AnalysisReplay | null, moveIndex: number) {
   }
 }
 
+function cloneChessGame(source: Chess) {
+  const clone = new Chess();
+  const pgn = source.pgn();
+
+  if (pgn.trim()) {
+    try {
+      clone.loadPgn(pgn);
+      return clone;
+    } catch {
+      // Fall through to FEN-only clone for imported positions.
+    }
+  }
+
+  try {
+    clone.load(source.fen());
+    return clone;
+  } catch {
+    return new Chess();
+  }
+}
+
+function chessFromRoomState(state: RoomState) {
+  const replay = new Chess();
+
+  if (state.pgn?.trim()) {
+    try {
+      replay.loadPgn(state.pgn);
+      return replay;
+    } catch {
+      // Fall back to FEN if server PGN is unavailable or malformed.
+    }
+  }
+
+  try {
+    replay.load(state.fen);
+    return replay;
+  } catch {
+    return new Chess();
+  }
+}
+
 function coachCopyByMode(mode: CoachMode, beginner: string, intermediate: string, advanced: string) {
   if (mode === "beginner") return beginner;
   if (mode === "intermediate") return intermediate;
@@ -1521,7 +1562,7 @@ function analyzeGame(history: Move[], game: Chess, analysis: StockfishAnalysis |
   const castle = history.some((move) => move.color === "w" && (move.san === "O-O" || move.san === "O-O-O"));
   const centerControl = history.slice(0, 8).some((move) => move.color === "w" && /^(e4|d4|c4|Nf3)/.test(move.san));
   const undevelopedMinors = ["b1", "g1", "c1", "f1"].filter((square) => game.get(square as Square)?.color === "w").length;
-  const bestMove = analysis?.bestMove ? playUciMove(new Chess(game.fen()), analysis.bestMove) : findBestMove(game);
+  const bestMove = analysis?.bestMove ? playUciMove(cloneChessGame(game), analysis.bestMove) : findBestMove(game);
   const insights: CoachInsight[] = [];
 
   if (bestMove) {
@@ -2572,7 +2613,7 @@ export default function App() {
           setFriendColor(response.color);
           setMode("friend");
           setView("game");
-          syncGame(new Chess(response.state.fen));
+          syncGame(chessFromRoomState(response.state));
           setRoomConnectionState(response.state.waitingForOpponent ? "waiting" : "ready");
         }
       })
@@ -2595,7 +2636,7 @@ export default function App() {
 
     const handleRoomState = (nextState: RoomState) => {
       setRoomState(nextState);
-      syncGame(new Chess(nextState.fen));
+      syncGame(chessFromRoomState(nextState));
       setRoomConnectionState(nextState.waitingForOpponent ? "waiting" : nextState.status === "opponent disconnected" ? "disconnected" : "ready");
     };
 
@@ -2648,7 +2689,7 @@ export default function App() {
         setMode("friend");
         setView("game");
         setRoomState(response.state);
-        syncGame(new Chess(response.state.fen));
+        syncGame(chessFromRoomState(response.state));
         setRoomConnectionState(response.state.waitingForOpponent ? "waiting" : "ready");
         setToast(response.state.waitingForOpponent ? "Room created. Waiting for opponent." : "Friend room connected.");
       },
@@ -2699,10 +2740,13 @@ export default function App() {
   }, [roomState]);
 
   useEffect(() => {
-    if (!game.isGameOver() || lastSavedFen.current === game.fen()) return;
-    lastSavedFen.current = game.fen();
+    if (!isGameFinished || mode === "friend") return;
+    const saveSignature = `${game.fen()}|${resultOverride || ""}|${statusOverride || ""}`;
+    if (lastSavedFen.current === saveSignature) return;
+    if (game.history().length === 0) return;
+    lastSavedFen.current = saveSignature;
     saveGame("auto");
-  }, [game]);
+  }, [game, isGameFinished, mode, resultOverride, statusOverride]);
 
   useEffect(() => {
     if (mode !== "friend" || !roomState) return;
@@ -2769,7 +2813,7 @@ export default function App() {
   }, [view, mode, game, isGameFinished]);
 
   function syncGame(nextGame: Chess) {
-    setGame(new Chess(nextGame.fen()));
+    setGame(cloneChessGame(nextGame));
     setHistory(nextGame.history({ verbose: true }));
   }
 
@@ -2901,7 +2945,7 @@ export default function App() {
 
   function completeMove(from: Square, to: Square, promotion: PromotionChoice = "q") {
     if (isGameFinished) return;
-    const nextGame = new Chess(game.fen());
+    const nextGame = cloneChessGame(game);
     let move: Move | null = null;
 
     try {
@@ -2939,7 +2983,7 @@ export default function App() {
 
           if (response.state) {
             setRoomState(response.state);
-            syncGame(new Chess(response.state.fen));
+            syncGame(chessFromRoomState(response.state));
           }
         },
       );
@@ -2996,7 +3040,7 @@ export default function App() {
       return;
     }
 
-    const movePreview = safeMove(new Chess(game.fen()), selected, square);
+    const movePreview = safeMove(cloneChessGame(game), selected, square);
     if (!movePreview) {
       setSelected(null);
       setLegalTargets([]);
@@ -3055,9 +3099,17 @@ export default function App() {
 
   function saveGame(source: "auto" | "manual", options?: { silent?: boolean }) {
     const saved = buildSavedGameSnapshot();
-    setSavedGames((current) => [saved, ...current].slice(0, 20));
+    if (saved.moves.length === 0) {
+      if (source === "manual" && !options?.silent) {
+        setToast("Play at least one move before saving a game.");
+      }
+      return saved;
+    }
+    setSavedGames((current) => mergeSavedGames(current, [saved]));
     if (profile.signedIn && mode !== "friend") {
       void saveHistory({
+        id: saved.id,
+        gameId: saved.id,
         mode,
         result: saved.result,
         status: saved.status || (isGameFinished ? `${gamePresentation.headline} — ${gamePresentation.detail}` : "saved"),
@@ -3071,7 +3123,12 @@ export default function App() {
         timeControl: saved.timeControl,
         opponent: saved.opponent,
         players: saved.players,
-      }).catch(() => undefined);
+        createdAt: saved.date,
+      }).catch((error) => {
+        if (source === "manual" && !options?.silent) {
+          setToast(error instanceof Error ? error.message : "Could not save game to history.");
+        }
+      });
     }
     if (source === "manual" && !options?.silent) setToast("Game saved to your local history.");
     return saved;
@@ -3095,7 +3152,7 @@ export default function App() {
       setRoomConnectionState("waiting");
       resetLocalClock(selectedTimeControl);
       openGameView(roomPath(room.roomId));
-      syncGame(new Chess(room.state.fen));
+      syncGame(chessFromRoomState(room.state));
       setToast(`Friend room created · ${getTimeControlTitle(selectedTimeControl)}. Share the link and wait for black to join.`);
     } catch (error) {
       const message =
@@ -3151,7 +3208,7 @@ export default function App() {
         }
         if (response.state) {
           setRoomState(response.state);
-          syncGame(new Chess(response.state.fen));
+          syncGame(chessFromRoomState(response.state));
         }
         playBoardSound("gameover", soundEnabled);
         setToast("Draw agreed.");
@@ -3176,7 +3233,7 @@ export default function App() {
         }
         if (response.state) {
           setRoomState(response.state);
-          syncGame(new Chess(response.state.fen));
+          syncGame(chessFromRoomState(response.state));
         }
         playBoardSound("gameover", soundEnabled);
         setToast("Game ended by resignation.");
@@ -3546,7 +3603,7 @@ export default function App() {
       const analysis = await analyzeFen(game.fen(), 12);
       setStockfishAnalysis(analysis);
 
-      const best = analysis.bestMove ? playUciMove(new Chess(game.fen()), analysis.bestMove) : null;
+      const best = analysis.bestMove ? playUciMove(cloneChessGame(game), analysis.bestMove) : null;
       const scoreText =
         analysis.mate !== null
           ? `mate ${analysis.mate}`

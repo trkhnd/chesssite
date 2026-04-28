@@ -238,15 +238,20 @@ export async function patchProfile(payload: {
 }
 
 export async function getHistory() {
-  const data = await request<{ items: Array<Record<string, unknown>> }>("/api/history");
+  const data = await request<{ items: Array<Record<string, unknown>> }>("/api/games/history");
   return data.items;
 }
 
 export function saveHistory(payload: Record<string, unknown>) {
-  return request<{ ok: boolean }>("/api/history", {
+  return request<{ ok: boolean; gameId: string }>("/api/games/save", {
     method: "POST",
     body: payload,
   });
+}
+
+export async function getSavedGame(gameId: string) {
+  const data = await request<{ game: Record<string, unknown> }>(`/api/games/${gameId}`);
+  return data.game;
 }
 
 export async function createFriendRoom(payload: {

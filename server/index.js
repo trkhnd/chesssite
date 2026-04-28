@@ -23,6 +23,7 @@ import {
   findUserByEmail,
   findUserByEmailWithPassword,
   findUserById,
+  getGameForUser,
   getUserEmailPreferences,
   listHistoryForUser,
   updateUserProfile,
@@ -346,12 +347,16 @@ app.patch("/api/profile", requireAuth, (req, res) => {
   sendUser(res, 200, user);
 });
 
-app.get("/api/history", requireAuth, (req, res) => {
-  res.json({ items: listHistoryForUser(req.session.userId) });
-});
+function hasReplayableMoves(moves, uciMoves, pgn) {
+  if (Array.isArray(moves) && moves.length > 0) return true;
+  if (Array.isArray(uciMoves) && uciMoves.length > 0) return true;
+  return typeof pgn === "string" && pgn.trim().length > 0;
+}
 
-app.post("/api/history", requireAuth, (req, res) => {
+function handleSaveGame(req, res) {
   const {
+    id,
+    gameId,
     mode,
     result,
     status,
@@ -366,13 +371,21 @@ app.post("/api/history", requireAuth, (req, res) => {
     timeControl,
     opponent,
     players,
+    createdAt,
   } = req.body || {};
+
   if (!result || !status) {
     res.status(400).json({ error: "Result and status are required." });
     return;
   }
 
-  createGameRecord({
+  if (!hasReplayableMoves(moves, uciMoves, pgn)) {
+    res.status(400).json({ error: "A game must include at least one move before it can be saved." });
+    return;
+  }
+
+  const savedGameId = createGameRecord({
+    id: gameId || id,
     mode: mode || "ai",
     roomId: null,
     whiteUserId: req.session.userId,
@@ -392,10 +405,32 @@ app.post("/api/history", requireAuth, (req, res) => {
     },
     winnerUserId: result === "1-0" ? req.session.userId : null,
     summary: summary || "",
+    createdAt: typeof createdAt === "string" ? createdAt : undefined,
   });
 
-  res.status(201).json({ ok: true });
+  res.status(201).json({ ok: true, gameId: savedGameId });
+}
+
+app.get("/api/history", requireAuth, (req, res) => {
+  res.json({ items: listHistoryForUser(req.session.userId) });
 });
+
+app.get("/api/games/history", requireAuth, (req, res) => {
+  res.json({ items: listHistoryForUser(req.session.userId) });
+});
+
+app.get("/api/games/:gameId", requireAuth, (req, res) => {
+  const game = getGameForUser(req.params.gameId, req.session.userId);
+  if (!game) {
+    res.status(404).json({ error: "Game not found." });
+    return;
+  }
+
+  res.json({ game });
+});
+
+app.post("/api/history", requireAuth, handleSaveGame);
+app.post("/api/games/save", requireAuth, handleSaveGame);
 
 app.post("/api/rooms", requireAuth, (req, res) => {
   const user = findUserById(req.session.userId);

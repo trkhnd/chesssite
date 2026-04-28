@@ -251,7 +251,7 @@ export function createGameRecord(input) {
   const createdAt = input.createdAt || new Date().toISOString();
   const finishedAt = input.finishedAt || new Date().toISOString();
   db.prepare(`
-    INSERT INTO games (
+    INSERT OR REPLACE INTO games (
       id, room_id, mode, white_user_id, black_user_id, result, status, pgn, fen,
       metadata, winner_user_id, summary, created_at, finished_at
     )
@@ -291,6 +291,21 @@ export function listHistoryForUser(userId) {
   `).all(userId, userId);
 
   return rows.map(mapGame);
+}
+
+export function getGameForUser(gameId, userId) {
+  const row = db.prepare(`
+    SELECT
+      g.*,
+      white.name AS white_name,
+      black.name AS black_name
+    FROM games g
+    LEFT JOIN users white ON white.id = g.white_user_id
+    LEFT JOIN users black ON black.id = g.black_user_id
+    WHERE g.id = ? AND (g.white_user_id = ? OR g.black_user_id = ?)
+  `).get(gameId, userId, userId);
+
+  return row ? mapGame(row) : null;
 }
 
 export function getUserEmailPreferences(email) {
