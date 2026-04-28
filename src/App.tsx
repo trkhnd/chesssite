@@ -1814,6 +1814,48 @@ function clampAnalysisIndex(positionsLength: number, nextIndex: number) {
   return Math.max(0, Math.min(Math.max(0, positionsLength - 1), nextIndex));
 }
 
+function countReplayableMoves(game: SavedGame) {
+  if (game.uciMoves?.length) return game.uciMoves.length;
+  if (game.moves.length) return game.moves.length;
+  if (game.pgn.trim()) return extractMovesFromPgn(game.pgn).length;
+  return 0;
+}
+
+function mergeSavedGames(current: SavedGame[], incoming: SavedGame[]) {
+  const merged = new Map<string, SavedGame>();
+
+  const addGame = (game: SavedGame) => {
+    const signature = `${game.mode}|${game.date}|${game.result}|${game.pgn || game.finalFen || game.id}`;
+    const existing = merged.get(signature);
+    if (!existing) {
+      merged.set(signature, game);
+      return;
+    }
+
+    const existingScore =
+      countReplayableMoves(existing) +
+      (existing.uciMoves?.length ? 4 : 0) +
+      (existing.initialFen ? 2 : 0) +
+      (existing.finalFen ? 1 : 0);
+    const nextScore =
+      countReplayableMoves(game) +
+      (game.uciMoves?.length ? 4 : 0) +
+      (game.initialFen ? 2 : 0) +
+      (game.finalFen ? 1 : 0);
+
+    if (nextScore > existingScore) {
+      merged.set(signature, game);
+    }
+  };
+
+  current.forEach(addGame);
+  incoming.forEach(addGame);
+
+  return [...merged.values()]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 30);
+}
+
 function getMoveQualityLabel(scoreDelta: number, move: Move, bestSan: string) {
   if (move.san === bestSan && (move.san.includes("#") || move.captured || move.san.includes("+"))) return "brilliant";
   if (move.san === bestSan || scoreDelta <= 0.6) return "good";
@@ -2431,7 +2473,7 @@ export default function App() {
           return {
             id: String(item.id),
             date: String(item.finishedAt || item.createdAt || new Date().toISOString()),
-            mode: item.mode === "friend" ? "friend" : "ai",
+            mode: item.mode === "friend" ? "friend" : item.mode === "local" ? "local" : "ai",
             result: String(item.result || "*"),
             moves: sanMoves,
             uciMoves,
@@ -2470,7 +2512,7 @@ export default function App() {
             },
           };
         }) as SavedGame[];
-        setSavedGames(mapped);
+        setSavedGames((current) => mergeSavedGames(current, mapped));
       })
       .catch((error) => setToast(error instanceof Error ? error.message : "Failed to load history."))
       .finally(() => setHistoryLoading(false));
@@ -2752,6 +2794,10 @@ export default function App() {
   function toggleSound() {
     setSoundEnabled((current) => {
       const next = !current;
+      if (next) {
+        unlockBoardAudio();
+        window.setTimeout(() => playBoardSound("move", true), 40);
+      }
       setToast(next ? "Chess sounds enabled." : "Chess sounds muted.");
       return next;
     });

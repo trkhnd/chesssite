@@ -46,6 +46,24 @@ const SOUND_LIBRARY: Record<ChessSound, Note[]> = {
 
 let audioContext: AudioContext | null = null;
 let audioUnlocked = false;
+const audioElements = new Map<ChessSound, HTMLAudioElement>();
+
+function getSoundUrl(kind: ChessSound) {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
+  return `${base}sounds/${kind}.wav`;
+}
+
+function getHtmlAudio(kind: ChessSound) {
+  if (typeof window === "undefined") return null;
+  const cached = audioElements.get(kind);
+  if (cached) return cached;
+
+  const audio = new Audio(getSoundUrl(kind));
+  audio.preload = "auto";
+  audio.volume = 0.42;
+  audioElements.set(kind, audio);
+  return audio;
+}
 
 function getAudioContext() {
   if (typeof window === "undefined") return null;
@@ -62,18 +80,23 @@ function getAudioContext() {
 
 export function unlockBoardAudio() {
   const context = getAudioContext();
-  if (!context) return;
-  if (context.state === "running") {
-    audioUnlocked = true;
-    return;
+  if (context) {
+    if (context.state === "running") {
+      audioUnlocked = true;
+    } else {
+      void context
+        .resume()
+        .then(() => {
+          audioUnlocked = context.state === "running";
+        })
+        .catch(() => undefined);
+    }
   }
-
-  void context
-    .resume()
-    .then(() => {
-      audioUnlocked = context.state === "running";
-    })
-    .catch(() => undefined);
+  (["move", "capture", "check", "gameover", "illegal", "promotion", "castle"] as ChessSound[]).forEach((kind) => {
+    const audio = getHtmlAudio(kind);
+    if (!audio) return;
+    void audio.load();
+  });
 }
 
 function scheduleNote(context: AudioContext, note: Note, offsetSeconds: number) {
@@ -93,6 +116,33 @@ function scheduleNote(context: AudioContext, note: Note, offsetSeconds: number) 
 
 export function playBoardSound(kind: ChessSound, enabled: boolean, delayMs = 0, attempt = 0) {
   if (!enabled) return;
+  const playHtmlAudio = () => {
+    const audio = getHtmlAudio(kind);
+    if (!audio) return false;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      const playback = audio.play();
+      if (playback && typeof playback.catch === "function") {
+        void playback.catch(() => undefined);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (delayMs > 0) {
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => playBoardSound(kind, enabled, 0, attempt), delayMs);
+    }
+    return;
+  }
+
+  if (playHtmlAudio()) {
+    return;
+  }
+
   const context = getAudioContext();
   if (!context) return;
   if (context.state !== "running") {
