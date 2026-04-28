@@ -298,19 +298,91 @@ function normalizeTheme(value: unknown): ThemeName {
   return "midnight";
 }
 
-const pieceIcons: Record<string, string> = {
-  wk: "♔",
-  wq: "♕",
-  wr: "♖",
-  wb: "♗",
-  wn: "♘",
-  wp: "♙",
-  bk: "♚",
-  bq: "♛",
-  br: "♜",
-  bb: "♝",
-  bn: "♞",
-  bp: "♟",
+function ChessPieceIcon({ color, type }: { color: Color; type: PieceSymbol }) {
+  const body: Record<PieceSymbol, ReactNode> = {
+    p: (
+      <>
+        <circle cx="32" cy="20" r="8" />
+        <path d="M23 35c0-7 18-7 18 0l4 13H19l4-13Z" />
+        <path d="M17 52h30v6H17z" />
+      </>
+    ),
+    n: (
+      <>
+        <path d="M19 54h30v5H19z" />
+        <path d="M24 50h21c-1-12 6-19 0-31-4-8-13-11-24-9 5 4 7 8 6 13l-8 5 9 3 6-3c-2 7-8 12-10 22Z" />
+        <circle cx="35" cy="20" r="2.2" className="pieceCut" />
+      </>
+    ),
+    b: (
+      <>
+        <circle cx="32" cy="13" r="5" />
+        <path d="M24 30c0-10 16-10 16 0 0 9-5 13-8 18-3-5-8-9-8-18Z" />
+        <path d="M21 50h22l3 8H18l3-8Z" />
+        <path d="M37 21 26 36" className="pieceLine" />
+      </>
+    ),
+    r: (
+      <>
+        <path d="M18 10h7v6h5v-6h4v6h5v-6h7v14H18z" />
+        <path d="M22 25h20v24H22z" />
+        <path d="M17 50h30v8H17z" />
+      </>
+    ),
+    q: (
+      <>
+        <circle cx="14" cy="15" r="4" />
+        <circle cx="26" cy="10" r="4" />
+        <circle cx="38" cy="10" r="4" />
+        <circle cx="50" cy="15" r="4" />
+        <path d="M17 22 24 48h16l7-26-10 12-5-16-5 16-10-12Z" />
+        <path d="M20 51h24v7H20z" />
+      </>
+    ),
+    k: (
+      <>
+        <path d="M29 7h6v9h8v6h-8v8h-6v-8h-8v-6h8z" />
+        <path d="M22 37c0-8 20-8 20 0l3 12H19l3-12Z" />
+        <path d="M18 51h28v7H18z" />
+      </>
+    ),
+  };
+
+  return (
+    <svg className={`pieceSvg pieceSvg-${color}`} viewBox="0 0 64 64" aria-hidden="true">
+      <g>{body[type]}</g>
+    </svg>
+  );
+}
+
+const pieceIcons: Record<string, ReactNode> = {
+  wk: <ChessPieceIcon color="w" type="k" />,
+  wq: <ChessPieceIcon color="w" type="q" />,
+  wr: <ChessPieceIcon color="w" type="r" />,
+  wb: <ChessPieceIcon color="w" type="b" />,
+  wn: <ChessPieceIcon color="w" type="n" />,
+  wp: <ChessPieceIcon color="w" type="p" />,
+  bk: <ChessPieceIcon color="b" type="k" />,
+  bq: <ChessPieceIcon color="b" type="q" />,
+  br: <ChessPieceIcon color="b" type="r" />,
+  bb: <ChessPieceIcon color="b" type="b" />,
+  bn: <ChessPieceIcon color="b" type="n" />,
+  bp: <ChessPieceIcon color="b" type="p" />,
+};
+
+const previewPieceMap: Record<string, string> = {
+  "♔": "wk",
+  "♕": "wq",
+  "♖": "wr",
+  "♗": "wb",
+  "♘": "wn",
+  "♙": "wp",
+  "♚": "bk",
+  "♛": "bq",
+  "♜": "br",
+  "♝": "bb",
+  "♞": "bn",
+  "♟": "bp",
 };
 
 const pieceValues: Record<PieceSymbol, number> = {
@@ -4324,7 +4396,7 @@ export default function App() {
                   <div className="miniBoard">
                     {["♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜", "♟", "♟", "♟", "", "", "♟", "♟", "♟", "", "", "", "", "♟", "", "", "", "", "", "", "♙", "♙", "", "", "", "", "", "♙", "", "", "♘", "", "", "♙", "♙", "", "", "", "♙", "♙", "♙", "♖", "♘", "♗", "♕", "♔", "♗", "", "♖"].map((piece, index) => (
                       <span key={`${piece}-${index}`} className={(Math.floor(index / 8) + index) % 2 === 0 ? "previewLight" : "previewDark"}>
-                        {piece}
+                        {piece ? pieceIcons[previewPieceMap[piece]] : ""}
                       </span>
                     ))}
                   </div>
@@ -4651,6 +4723,8 @@ export default function App() {
                             isCheckedKing ? "checkedKing" : "",
                           ].join(" ")}
                           onMouseDown={(event) => event.preventDefault()}
+                          onTouchStart={(event) => event.currentTarget.blur()}
+                          onTouchMove={(event) => event.preventDefault()}
                           onClick={(event) => {
                             event.currentTarget.blur();
                             handleSquareClick(square);
@@ -5139,6 +5213,8 @@ export default function App() {
                           isTarget ? "target" : "",
                         ].join(" ")}
                         onMouseDown={(event) => event.preventDefault()}
+                        onTouchStart={(event) => event.currentTarget.blur()}
+                        onTouchMove={(event) => event.preventDefault()}
                         onClick={(event) => {
                           event.currentTarget.blur();
                           handlePuzzleSquareClick(square);
@@ -5158,7 +5234,7 @@ export default function App() {
                     <div className="puzzleBoard">
                       {fenPreview(puzzle.fen).map((piece, index) => (
                         <span key={`${puzzle.title}-${index}`} className={(Math.floor(index / 8) + index) % 2 === 0 ? "previewLight" : "previewDark"}>
-                          {piece}
+                          {piece ? pieceIcons[previewPieceMap[piece]] : ""}
                         </span>
                       ))}
                     </div>

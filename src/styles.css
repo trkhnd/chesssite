@@ -1169,6 +1169,8 @@ h2 {
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
   contain: layout paint;
   overflow-anchor: none;
+  overscroll-behavior: contain;
+  touch-action: none;
   transition: transform 220ms ease;
 }
 
@@ -1194,6 +1196,7 @@ h2 {
   padding: 0;
   color: inherit;
   cursor: pointer;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -1234,33 +1237,59 @@ h2 {
   height: 100%;
   place-items: center;
   z-index: 1;
-  font-family: "Noto Sans Symbols 2", "Apple Symbols", "Segoe UI Symbol", "DejaVu Sans", serif;
-  font-size: clamp(1.75rem, 6.5vmin, 4.35rem);
-  font-weight: 400;
-  line-height: 1;
-  text-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.2),
-    0 3px 8px rgba(0, 0, 0, 0.36);
+  font-size: 0;
   transform: translateY(-1px);
   pointer-events: none;
   will-change: transform;
 }
 
-.piece.w {
-  color: #fff8e8;
-  -webkit-text-stroke: 0.7px rgba(36, 43, 36, 0.88);
-  text-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.45),
-    0 2px 0 rgba(70, 82, 62, 0.42),
-    0 6px 12px rgba(0, 0, 0, 0.42);
+.pieceSvg {
+  width: 82%;
+  height: 82%;
+  fill: currentColor;
+  stroke: color-mix(in srgb, currentColor 30%, transparent);
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+  paint-order: stroke fill;
+  filter: drop-shadow(0 5px 5px rgba(0, 0, 0, 0.28));
 }
 
-.piece.b {
-  color: #07100e;
-  -webkit-text-stroke: 0.45px rgba(238, 220, 188, 0.2);
-  text-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.18),
-    0 5px 10px rgba(0, 0, 0, 0.48);
+.pieceSvg-w {
+  color: #f8ecd2;
+  stroke: rgba(39, 47, 36, 0.72);
+}
+
+.pieceSvg-b {
+  color: #08120f;
+  stroke: rgba(237, 220, 184, 0.18);
+}
+
+.pieceSvg .pieceLine {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.pieceSvg-w .pieceLine {
+  stroke: rgba(70, 81, 61, 0.82);
+}
+
+.pieceSvg-b .pieceLine {
+  stroke: rgba(235, 215, 178, 0.3);
+}
+
+.pieceSvg-w .pieceCut {
+  fill: #596b4b;
+}
+
+.pieceSvg-b .pieceCut {
+  fill: #ead7b5;
+}
+
+.miniBoard .pieceSvg,
+.puzzleBoard .pieceSvg {
+  width: 74%;
+  height: 74%;
 }
 
 .coord {
@@ -3289,8 +3318,9 @@ h2 {
     border-width: 5px;
   }
 
-  .piece {
-    font-size: clamp(1.45rem, 9vw, 3.4rem);
+  .pieceSvg {
+    width: 84%;
+    height: 84%;
   }
 
   .coord {
