@@ -2845,12 +2845,14 @@ h2 {
 
 @media (max-width: 760px) {
   .app {
-    padding: 12px 12px 86px;
+    padding: 10px 10px 18px;
   }
 
   .topbar {
     top: 8px;
     padding: 8px;
+    align-items: center;
+    gap: 10px;
   }
 
   .brand p,
@@ -2871,30 +2873,37 @@ h2 {
   }
 
   .navPanel {
-    display: block;
+    display: none;
     position: fixed;
     right: 12px;
-    bottom: 12px;
+    top: 76px;
+    bottom: auto;
     left: 12px;
-    z-index: 24;
-    padding: 10px;
+    z-index: 40;
+    max-height: calc(100vh - 96px);
+    overflow: auto;
+    padding: 12px;
     background: rgba(17, 23, 21, 0.92);
     backdrop-filter: blur(14px);
   }
 
+  .productShell.navOpen .navPanel {
+    display: block;
+  }
+
   .navList {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .navList button {
     min-height: 52px;
-    justify-content: center;
-    padding: 0 8px;
-    font-size: 0.86rem;
+    justify-content: flex-start;
+    padding: 0 10px;
+    font-size: 0.92rem;
   }
 
   .navList button svg {
-    display: none;
+    display: block;
   }
 
   .profileCard,
@@ -2910,6 +2919,9 @@ h2 {
   .gameBoardShell,
   .gameSideRail {
     padding: 10px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .heroPanel {
@@ -2975,8 +2987,21 @@ h2 {
     flex-direction: column;
   }
 
+  .savedGame {
+    grid-template-columns: 1fr;
+  }
+
   .savedMetaStack {
     justify-items: start;
+  }
+
+  .savedActions {
+    width: 100%;
+  }
+
+  .savedActions button {
+    flex: 1 1 180px;
+    justify-content: center;
   }
 
   .analysisMoveButton {
@@ -2991,6 +3016,26 @@ h2 {
     width: min(100%, 92vw);
     max-width: min(92vw, calc(100vh - 280px));
     min-width: 0;
+  }
+
+  .gamePage,
+  .analysisLayout,
+  .playGrid {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sectionHeader h2,
+  .welcomeHero h2,
+  .academyHero h2,
+  .heroCopy h2 {
+    overflow-wrap: anywhere;
+  }
+
+  .roomCard code,
+  .recentGameRow,
+  .timeSummaryBar {
+    overflow-wrap: anywhere;
   }
 
   .leaderRow {
@@ -3011,17 +3056,19 @@ h2 {
 
 @media (max-width: 639px) {
   .app {
-    padding: 10px 10px 94px;
+    padding: 8px 8px 16px;
   }
 
   .topbar {
-    gap: 10px;
-    align-items: flex-start;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
   }
 
   .brand {
     min-width: 0;
-    gap: 10px;
+    gap: 8px;
+    flex: 1 1 auto;
   }
 
   .brand > div {
@@ -3035,7 +3082,19 @@ h2 {
   }
 
   h1 {
-    font-size: 1.08rem;
+    font-size: 1rem;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .topActions {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+
+  .iconButton {
+    width: 40px;
+    height: 40px;
   }
 
   .welcomeGate {
@@ -3045,7 +3104,21 @@ h2 {
 
   .welcomeHero,
   .welcomeAuthPanel {
-    padding: 18px;
+    padding: 14px;
+  }
+
+  .welcomeHero h2 {
+    font-size: clamp(2rem, 12vw, 3rem);
+    line-height: 1;
+  }
+
+  .welcomeHero p,
+  .sectionLead,
+  .gameSubstatus,
+  .coachBulletPanel p,
+  .bookCard p,
+  .clubCard p {
+    line-height: 1.55;
   }
 
   .welcomeBenefits,
@@ -3054,19 +3127,40 @@ h2 {
   }
 
   .navPanel {
-    right: 10px;
-    bottom: 10px;
-    left: 10px;
+    top: 68px;
+    right: 8px;
+    left: 8px;
+    max-height: calc(100vh - 84px);
   }
 
   .navList {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 
   .navList button {
-    min-height: 56px;
-    padding: 8px 6px;
-    font-size: 0.8rem;
+    min-height: 48px;
+    padding: 8px 10px;
+    font-size: 0.92rem;
+  }
+
+  .mainStage,
+  .dashboardView,
+  .gameBoardShell,
+  .gameSideRail,
+  .analysisBoardShell,
+  .analysisSideRail,
+  .timeControlPanel {
+    padding: 10px;
+  }
+
+  .playModeCard,
+  .bookCard,
+  .clubCard,
+  .timeControlPanel,
+  .gameBoardShell,
+  .gameSideRail,
+  .coachBulletPanel > div {
+    padding: 12px;
   }
 
   .gameStatusPanel {
@@ -3088,8 +3182,8 @@ h2 {
   }
 
   .board {
-    width: min(90vw, calc(100vh - 250px));
-    border-width: 8px;
+    width: min(92vw, calc(100vh - 230px));
+    border-width: 6px;
   }
 
   .piece {
@@ -3103,6 +3197,15 @@ h2 {
   .gameActionRow,
   .analysisControls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .timeControlOptions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .timeCard {
+    min-height: 64px;
+    padding: 10px;
   }
 
   .gameActionRow button,
@@ -3137,6 +3240,17 @@ h2 {
   .analysisMoveButton {
     gap: 8px;
     padding: 12px;
+  }
+
+  .analysisMoveButton small {
+    justify-self: start;
+  }
+
+  .globalToast {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    max-width: none;
   }
 
   .coachBulletPanel > div {
