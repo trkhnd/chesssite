@@ -183,6 +183,23 @@ type PendingPromotion = {
   color: "white" | "black";
 };
 
+type GameOutcomeReason =
+  | "in-progress"
+  | "check"
+  | "checkmate"
+  | "stalemate"
+  | "draw"
+  | "resignation"
+  | "timeout";
+
+type GamePresentation = {
+  finished: boolean;
+  headline: string;
+  detail: string;
+  reason: GameOutcomeReason;
+  winner: "white" | "black" | null;
+};
+
 const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
 const copy = {
@@ -1267,6 +1284,193 @@ function getResult(game: Chess) {
   return "In progress";
 }
 
+function getWinnerFromResult(result: string) {
+  if (result === "1-0") return "white";
+  if (result === "0-1") return "black";
+  return null;
+}
+
+function findCheckedKingSquare(game: Chess) {
+  if (!game.isCheck()) return null;
+  const kingColor = game.turn();
+  const board = game.board();
+  for (let rank = 0; rank < board.length; rank += 1) {
+    for (let file = 0; file < board[rank].length; file += 1) {
+      const piece = board[rank][file];
+      if (piece?.type === "k" && piece.color === kingColor) {
+        return `${files[file]}${8 - rank}` as Square;
+      }
+    }
+  }
+  return null;
+}
+
+function buildGameStatus(params: {
+  game: Chess;
+  mode: LocalGameMode;
+  roomState: RoomState | null;
+  resultOverride: string | null;
+  statusOverride: string | null;
+}): GamePresentation {
+  if (params.mode === "friend" && params.roomState) {
+    const state = params.roomState;
+    if (state.finished) {
+      if (state.timeoutWinner) {
+        return {
+          finished: true,
+          headline: "Timeout",
+          detail: `${state.timeoutWinner === "white" ? "White" : "Black"} wins on time`,
+          reason: "timeout",
+          winner: state.timeoutWinner,
+        };
+      }
+      if (/resigned/i.test(state.status)) {
+        const winner = getWinnerFromResult(state.result);
+        return {
+          finished: true,
+          headline: "Resignation",
+          detail: winner ? `${winner === "white" ? "White" : "Black"} wins by resignation` : state.status,
+          reason: "resignation",
+          winner,
+        };
+      }
+      if (state.isCheckmate || /checkmate/i.test(state.status)) {
+        const winner = getWinnerFromResult(state.result);
+        return {
+          finished: true,
+          headline: "Checkmate",
+          detail: winner ? `${winner === "white" ? "White" : "Black"} wins` : state.status,
+          reason: "checkmate",
+          winner,
+        };
+      }
+      if (state.isDraw) {
+        return {
+          finished: true,
+          headline: /stalemate/i.test(state.status) ? "Stalemate" : "Draw",
+          detail: /stalemate/i.test(state.status) ? "Game drawn by stalemate" : "Game drawn",
+          reason: /stalemate/i.test(state.status) ? "stalemate" : "draw",
+          winner: null,
+        };
+      }
+    }
+
+    if (state.isCheck) {
+      return {
+        finished: false,
+        headline: "Check",
+        detail: `${state.turn === "white" ? "White" : "Black"} to move`,
+        reason: "check",
+        winner: null,
+      };
+    }
+
+    return {
+      finished: false,
+      headline: "In progress",
+      detail: state.waitingForOpponent ? "Waiting for opponent" : `${state.turn === "white" ? "White" : "Black"} to move`,
+      reason: "in-progress",
+      winner: null,
+    };
+  }
+
+  if (params.resultOverride && params.statusOverride) {
+    if (/time/i.test(params.statusOverride)) {
+      return {
+        finished: true,
+        headline: "Timeout",
+        detail: params.statusOverride,
+        reason: "timeout",
+        winner: getWinnerFromResult(params.resultOverride),
+      };
+    }
+    if (/resigned/i.test(params.statusOverride)) {
+      return {
+        finished: true,
+        headline: "Resignation",
+        detail: getWinnerFromResult(params.resultOverride)
+          ? `${getWinnerFromResult(params.resultOverride) === "white" ? "White" : "Black"} wins by resignation`
+          : params.statusOverride,
+        reason: "resignation",
+        winner: getWinnerFromResult(params.resultOverride),
+      };
+    }
+    if (params.resultOverride === "1/2-1/2") {
+      return {
+        finished: true,
+        headline: /stalemate/i.test(params.statusOverride) ? "Stalemate" : "Draw",
+        detail: /stalemate/i.test(params.statusOverride) ? "Game drawn by stalemate" : params.statusOverride,
+        reason: /stalemate/i.test(params.statusOverride) ? "stalemate" : "draw",
+        winner: null,
+      };
+    }
+  }
+
+  if (params.game.isCheckmate()) {
+    const winner = params.game.turn() === "w" ? "black" : "white";
+    return {
+      finished: true,
+      headline: "Checkmate",
+      detail: `${winner === "white" ? "White" : "Black"} wins`,
+      reason: "checkmate",
+      winner,
+    };
+  }
+  if (params.game.isStalemate()) {
+    return {
+      finished: true,
+      headline: "Stalemate",
+      detail: "Game drawn by stalemate",
+      reason: "stalemate",
+      winner: null,
+    };
+  }
+  if (params.game.isDraw()) {
+    return {
+      finished: true,
+      headline: "Draw",
+      detail: "Game drawn",
+      reason: "draw",
+      winner: null,
+    };
+  }
+  if (params.game.isCheck()) {
+    return {
+      finished: false,
+      headline: "Check",
+      detail: `${params.game.turn() === "w" ? "White" : "Black"} to move`,
+      reason: "check",
+      winner: null,
+    };
+  }
+
+  return {
+    finished: false,
+    headline: "In progress",
+    detail: `${params.game.turn() === "w" ? "White" : "Black"} to move`,
+    reason: "in-progress",
+    winner: null,
+  };
+}
+
+function replayGameToMove(moves: Move[], moveIndex: number) {
+  const replay = new Chess();
+  const safeMoveCount = Math.max(0, Math.min(moves.length, moveIndex));
+  for (let index = 0; index < safeMoveCount; index += 1) {
+    const move = moves[index];
+    try {
+      replay.move({
+        from: move.from,
+        to: move.to,
+        promotion: move.promotion || "q",
+      });
+    } catch {
+      break;
+    }
+  }
+  return replay;
+}
+
 function coachCopyByMode(mode: CoachMode, beginner: string, intermediate: string, advanced: string) {
   if (mode === "beginner") return beginner;
   if (mode === "intermediate") return intermediate;
@@ -1721,28 +1925,6 @@ function getBoardOrientation(mode: LocalGameMode, turn: "white" | "black", autoR
   return "white";
 }
 
-function getDisplayStatusLabel(params: {
-  game: Chess;
-  mode: LocalGameMode;
-  roomState: RoomState | null;
-  resultOverride: string | null;
-  statusOverride: string | null;
-}) {
-  if (params.mode === "friend" && params.roomState) {
-    const state = params.roomState;
-    if (state.finished && state.timeoutWinner) {
-      return state.timeoutWinner === "white" ? "White wins on time" : "Black wins on time";
-    }
-    return state.status;
-  }
-
-  if (params.resultOverride === "1/2-1/2") return params.statusOverride || "Draw agreed";
-  if (params.resultOverride === "1-0" && params.statusOverride?.includes("time")) return "White wins on time";
-  if (params.resultOverride === "0-1" && params.statusOverride?.includes("time")) return "Black wins on time";
-  if (params.statusOverride) return params.statusOverride;
-  return getStatus(params.game);
-}
-
 function getClubSuggestions(city: string) {
   return cityClubSuggestions[city] ?? cityClubSuggestions.Almaty;
 }
@@ -1869,9 +2051,10 @@ export default function App() {
   }, [selectedTimeControlId, customMinutes, customIncrement]);
   const activeTurn = roomState?.turn || (game.turn() === "w" ? "white" : "black");
   const boardOrientation = getBoardOrientation(mode, activeTurn, autoRotateBoard);
-  const displayStatus = useMemo(
+  const checkedKingSquare = useMemo(() => findCheckedKingSquare(game), [game]);
+  const gamePresentation = useMemo(
     () =>
-      getDisplayStatusLabel({
+      buildGameStatus({
         game,
         mode,
         roomState,
@@ -1882,7 +2065,7 @@ export default function App() {
   );
   const communityClubs = useMemo(() => getClubSuggestions(profile.city), [profile.city]);
   const t = (key: keyof typeof copy.en) => copy[language][key] ?? copy.en[key];
-  const isGameFinished = Boolean(mode === "friend" ? roomState?.finished : resultOverride || game.isGameOver());
+  const isGameFinished = gamePresentation.finished;
   const showGameAnalysis = view === "game" && isGameFinished && analysisOpen;
   const selectedAnalysisGame = useMemo(
     () => savedGames.find((savedGame) => savedGame.id === selectedAnalysisGameId) || null,
@@ -1892,16 +2075,21 @@ export default function App() {
     () => (selectedAnalysisGame ? parseSavedGameMoves(selectedAnalysisGame) : null),
     [selectedAnalysisGame],
   );
+  const analysisTimelineMoves = useMemo(
+    () => (analysisReplay ? analysisReplay.moves.slice(0, Math.max(0, analysisReplay.positions.length - 1)) : []),
+    [analysisReplay],
+  );
   const maxAnalysisIndex = analysisReplay ? Math.max(0, analysisReplay.positions.length - 1) : 0;
   const analysisPosition = useMemo(() => {
     if (!analysisReplay) return new Chess();
-    return new Chess(analysisReplay.positions[clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex)]);
-  }, [analysisReplay, analysisMoveIndex]);
+    return replayGameToMove(analysisTimelineMoves, clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex));
+  }, [analysisReplay, analysisTimelineMoves, analysisMoveIndex]);
   const analysisBoard = useMemo(() => createBoard(analysisPosition), [analysisPosition]);
   const selectedAnalysis = selectedAnalysisGameId ? analysisCache[selectedAnalysisGameId] || null : null;
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const currentAnalysisReview =
     selectedAnalysis && analysisMoveIndex > 0
-      ? selectedAnalysis.moveReviews[clampAnalysisIndex(selectedAnalysis.moveReviews.length + 1, analysisMoveIndex) - 1] || null
+      ? selectedAnalysis.moveReviews[Math.min(selectedAnalysis.moveReviews.length, analysisMoveIndex) - 1] || null
       : null;
 
   const leaderboard = useMemo(() => {
@@ -2333,7 +2521,7 @@ export default function App() {
 
   useEffect(() => {
     if (view !== "game" || mode === "friend") return;
-    if (resultOverride || game.isGameOver()) return;
+    if (isGameFinished) return;
 
     const interval = window.setInterval(() => {
       if (game.turn() === "w") {
@@ -2358,7 +2546,7 @@ export default function App() {
     }, 250);
 
     return () => window.clearInterval(interval);
-  }, [view, mode, game, resultOverride]);
+  }, [view, mode, game, isGameFinished]);
 
   function syncGame(nextGame: Chess) {
     setGame(new Chess(nextGame.fen()));
@@ -2456,6 +2644,7 @@ export default function App() {
   }
 
   function completeMove(from: Square, to: Square, promotion: PromotionChoice = "q") {
+    if (isGameFinished) return;
     const nextGame = new Chess(game.fen());
     let move: Move | null = null;
 
@@ -2509,7 +2698,7 @@ export default function App() {
   }
 
   function handleSquareClick(square: Square) {
-    if (game.isGameOver() || resultOverride || pendingPromotion) return;
+    if (isGameFinished || pendingPromotion) return;
     if (mode === "ai" && (game.turn() !== "w" || aiThinking)) return;
     if (mode === "friend") {
       if (!friendColor) {
@@ -2571,9 +2760,9 @@ export default function App() {
     startGame(nextMode);
   }
 
-  function saveGame(source: "auto" | "manual") {
+  function buildSavedGameSnapshot(): SavedGame {
     const now = new Date().toISOString();
-    const saved: SavedGame = {
+    return {
       id: crypto.randomUUID(),
       date: now,
       mode,
@@ -2583,7 +2772,7 @@ export default function App() {
       coach: coachReport,
       city: profile.city,
       reviewScore,
-      status: statusOverride || getStatus(game),
+      status: `${gamePresentation.headline} — ${gamePresentation.detail}`,
       timeControl: getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl),
       opponent:
         mode === "friend"
@@ -2592,18 +2781,23 @@ export default function App() {
             ? aiProfiles[aiLevel].name
             : "Local board",
     };
+  }
+
+  function saveGame(source: "auto" | "manual", options?: { silent?: boolean }) {
+    const saved = buildSavedGameSnapshot();
     setSavedGames((current) => [saved, ...current].slice(0, 20));
     if (profile.signedIn && mode !== "friend") {
       void saveHistory({
         mode,
         result: saved.result,
-        status: statusOverride || (game.isGameOver() ? getStatus(game) : "saved"),
+        status: saved.status || (isGameFinished ? `${gamePresentation.headline} — ${gamePresentation.detail}` : "saved"),
         pgn: saved.pgn,
         fen: game.fen(),
         summary: `${getReviewLabel(reviewScore)} review saved from the ${mode} board.`,
       }).catch(() => undefined);
     }
-    if (source === "manual") setToast("Game saved to your local history.");
+    if (source === "manual" && !options?.silent) setToast("Game saved to your local history.");
+    return saved;
   }
 
   async function createRoom() {
@@ -3046,37 +3240,45 @@ export default function App() {
 
     if (view === "game") {
       setAnalysisOpen(true);
-    } else {
-      setView("coach");
-    }
-
-    if (!canUseStockfish()) {
-      setStockfishAnalysis(null);
-      setToast(`${getCoachPositionLine(game, history)} Engine unavailable, so Chess Master is using the built-in positional coach instead.`);
+      const savedGame = saveGame("auto", { silent: true });
+      await analyzeSavedGame(savedGame);
       return;
     }
 
-    setStockfishBusy(true);
-    const analysis = await analyzeFen(game.fen(), 12);
-    setStockfishAnalysis(analysis);
-    setStockfishBusy(false);
+    setView("coach");
 
-    const best = analysis.bestMove ? playUciMove(new Chess(game.fen()), analysis.bestMove) : null;
-    const scoreText =
-      analysis.mate !== null
-        ? `mate ${analysis.mate}`
-        : analysis.scoreCp !== null
-          ? `${(analysis.scoreCp / 100).toFixed(2)} pawns`
-          : "no score";
+    try {
+      if (!canUseStockfish()) {
+        setStockfishAnalysis(null);
+        setToast(`${getCoachPositionLine(game, history)} Engine unavailable, so Chess Master is using the built-in positional coach instead.`);
+        return;
+      }
 
-    if (profile.signedIn && profile.notifications.coachTips && best) {
-      void sendCoachTipEmail({
-        tip: `Coach mode ${coachMode}: consider ${best.san}. Improve king safety, development, and center control before your next move.`,
-        evaluation: scoreText,
-      }).catch(() => undefined);
+      setStockfishBusy(true);
+      const analysis = await analyzeFen(game.fen(), 12);
+      setStockfishAnalysis(analysis);
+
+      const best = analysis.bestMove ? playUciMove(new Chess(game.fen()), analysis.bestMove) : null;
+      const scoreText =
+        analysis.mate !== null
+          ? `mate ${analysis.mate}`
+          : analysis.scoreCp !== null
+            ? `${(analysis.scoreCp / 100).toFixed(2)} pawns`
+            : "no score";
+
+      if (profile.signedIn && profile.notifications.coachTips && best) {
+        void sendCoachTipEmail({
+          tip: `Coach mode ${coachMode}: consider ${best.san}. Improve king safety, development, and center control before your next move.`,
+          evaluation: scoreText,
+        }).catch(() => undefined);
+      }
+
+      setToast(best ? `Stockfish recommends ${best.san} (${scoreText}).` : "Analysis refreshed with fallback positional advice.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Analysis failed.");
+    } finally {
+      setStockfishBusy(false);
     }
-
-    setToast(best ? `Stockfish recommends ${best.san} (${scoreText}).` : "Analysis refreshed with fallback positional advice.");
   }
 
   function openSavedGameView(savedGame: SavedGame) {
@@ -3116,6 +3318,7 @@ export default function App() {
     setSelectedAnalysisGameId(savedGame.id);
     setAnalysisMoveIndex(0);
     setView("analysis");
+    setAnalysisError(null);
     window.history.replaceState(null, "", analysisPath(savedGame.id));
 
     if (analysisCache[savedGame.id]) {
@@ -3217,6 +3420,10 @@ export default function App() {
 
       setAnalysisCache((current) => ({ ...current, [savedGame.id]: analysisResult }));
       setToast("Saved game analysis completed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Coach analysis failed.";
+      setAnalysisError(message);
+      setToast(message);
     } finally {
       setAnalysisPending(false);
     }
@@ -3955,14 +4162,20 @@ export default function App() {
               <div className="gamePage">
                 <section className="gameBoardShell">
                   <div className="gameHeader">
-                    <div>
+                    <div className="gameStatusPanel">
                       <span className="eyebrow">{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</span>
-                      <h2>{aiThinking ? "AI is thinking..." : displayStatus}</h2>
+                      <div className={gamePresentation.reason === "check" ? "statusBadge warningStatusBadge" : gamePresentation.finished ? "statusBadge finishedStatusBadge" : "statusBadge"}>
+                        {aiThinking ? "AI is thinking..." : gamePresentation.headline}
+                      </div>
+                      <h2>{aiThinking ? "Waiting for the engine reply" : gamePresentation.detail}</h2>
                       {mode === "friend" && roomState?.waitingForOpponent && (
                         <p className="gameSubstatus">Share the invite link. White is ready and Black can join straight from the room URL.</p>
                       )}
                       {mode === "friend" && roomState?.status === "opponent disconnected" && (
                         <p className="gameSubstatus">Your opponent disconnected. The room stays active, so they can reconnect from the same link.</p>
+                      )}
+                      {!roomState?.waitingForOpponent && !aiThinking && !gamePresentation.finished && gamePresentation.reason !== "check" && (
+                        <p className="gameSubstatus">Use the board, clocks, and move list without the layout shifting when the position gets sharp.</p>
                       )}
                     </div>
                     <div className="headerActions">
@@ -3990,6 +4203,7 @@ export default function App() {
                       const isLight = (Math.floor(index / 8) + index) % 2 === 0;
                       const isSelected = selected === square;
                       const isTarget = legalTargets.includes(square);
+                      const isCheckedKing = checkedKingSquare === square;
                       const file = square[0];
                       const rank = square[1];
                       return (
@@ -4000,6 +4214,7 @@ export default function App() {
                             isLight ? "lightSquare" : "darkSquare",
                             isSelected ? "selected" : "",
                             isTarget ? "target" : "",
+                            isCheckedKing ? "checkedKing" : "",
                           ].join(" ")}
                           onClick={() => handleSquareClick(square)}
                           aria-label={square}
@@ -4025,14 +4240,36 @@ export default function App() {
                   <div className="gameActionRow">
                     <button className="ghostButton" onClick={resignGame}>Resign</button>
                     <button className="ghostButton" onClick={offerDraw}>Offer draw</button>
-                    <button className="ghostButton" onClick={restartCurrentGame} disabled={roomBusy}>{mode === "friend" ? "New room" : "Restart"}</button>
+                    <button className="ghostButton" onClick={restartCurrentGame} disabled={roomBusy}>{mode === "friend" ? "Rematch room" : "Rematch"}</button>
                     {isGameFinished && (
                       <button className="primaryButton" onClick={analyzeNow} disabled={stockfishBusy}>
                         <Brain size={16} />
-                        {stockfishBusy ? "Opening analysis..." : "Analyze with Coach"}
+                        {analysisPending || stockfishBusy ? "Opening analysis..." : "Analyze with Coach"}
                       </button>
                     )}
                   </div>
+
+                  {isGameFinished && (
+                    <div className="gameResultCard">
+                      <span className="eyebrow">{gamePresentation.reason === "checkmate" ? "Game Over" : gamePresentation.headline}</span>
+                      <h3>{gamePresentation.reason === "checkmate" ? `Checkmate — ${gamePresentation.winner === "white" ? "White" : "Black"} wins` : `${gamePresentation.headline} — ${gamePresentation.detail}`}</h3>
+                      <p>The board is now locked, the clocks are stopped, and you can either review the game or start a fresh one.</p>
+                      <div className="gameResultActions">
+                        <button className="primaryButton" onClick={analyzeNow} disabled={analysisPending || stockfishBusy}>
+                          <Brain size={16} />
+                          {analysisPending || stockfishBusy ? "Analyzing..." : "Analyze with Coach"}
+                        </button>
+                        <button className="ghostButton" onClick={restartCurrentGame} disabled={roomBusy}>
+                          <RefreshCcw size={16} />
+                          Rematch
+                        </button>
+                        <button className="ghostButton" onClick={backToLobby}>
+                          <Menu size={16} />
+                          Back to lobby
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </section>
 
                 <aside className="gameSideRail">
@@ -4044,7 +4281,7 @@ export default function App() {
                     <p>{getModeLabel(mode)} · {getTimeControlTitle(mode === "friend" && roomState ? roomState.timeControl : selectedTimeControl)}</p>
                     <div className="gameMeta">
                       <span>Status</span>
-                      <strong>{displayStatus}</strong>
+                      <strong>{gamePresentation.headline} · {gamePresentation.detail}</strong>
                     </div>
                     {mode === "local" && (
                       <label className="toggleRow">
@@ -4199,7 +4436,7 @@ export default function App() {
                           <strong>{selectedAnalysisGame.opponent || "Training opponent"}</strong>
                         </div>
                         <div className="analysisMiniStats">
-                          <span>Move {Math.min(clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex), analysisReplay.moves.length)} / {analysisReplay.moves.length}</span>
+                          <span>Move {Math.min(clampAnalysisIndex(analysisReplay.positions.length, analysisMoveIndex), analysisTimelineMoves.length)} / {analysisTimelineMoves.length}</span>
                           <span>{selectedAnalysis?.summary.accuracy ? `${selectedAnalysis.summary.accuracy}% accuracy` : analysisPending ? "Analyzing..." : "Review pending"}</span>
                         </div>
                       </div>
@@ -4208,7 +4445,7 @@ export default function App() {
                         <div className="board" aria-label="Analysis chess board">
                           {analysisBoard.map(({ square, piece }, index) => {
                             const isLight = (Math.floor(index / 8) + index) % 2 === 0;
-                            const currentMove = analysisMoveIndex > 0 ? analysisReplay.moves[analysisMoveIndex - 1] : null;
+                            const currentMove = analysisMoveIndex > 0 ? analysisTimelineMoves[analysisMoveIndex - 1] : null;
                             const isHighlighted = currentMove ? currentMove.from === square || currentMove.to === square : false;
                             return (
                               <div
@@ -4253,7 +4490,9 @@ export default function App() {
                           <h3>Move list</h3>
                         </div>
                         <div className="analysisMoveList">
-                          {analysisReplay.moves.map((move, index) => (
+                          {analysisTimelineMoves.length === 0 ? (
+                            <div className="emptyState compactEmpty">No replayable moves were found for this saved game yet.</div>
+                          ) : analysisTimelineMoves.map((move, index) => (
                             <button
                               key={`analysis-move-${index}-${move.san}`}
                               className={analysisMoveIndex === index + 1 ? "analysisMoveButton activeAnalysisMove" : "analysisMoveButton"}
@@ -4285,6 +4524,13 @@ export default function App() {
                         </div>
                         {analysisPending ? (
                           <p>Analyzing the saved game move by move...</p>
+                        ) : analysisError ? (
+                          <div className="coachErrorCard">
+                            <p>{analysisError}</p>
+                            <button className="ghostButton" onClick={() => void analyzeSavedGame(selectedAnalysisGame)}>
+                              Analyze again
+                            </button>
+                          </div>
                         ) : currentAnalysisReview ? (
                           <div className="coachBulletPanel">
                             <div>

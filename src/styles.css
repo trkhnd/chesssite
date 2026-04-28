@@ -1071,14 +1071,48 @@ h2 {
   margin-bottom: 12px;
 }
 
+.gameStatusPanel {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 152px;
+}
+
+.statusBadge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: color-mix(in srgb, currentColor 82%, transparent);
+  font-size: 0.8rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.warningStatusBadge {
+  background: rgba(201, 78, 78, 0.18);
+  color: #f6b3b3;
+}
+
+.finishedStatusBadge {
+  background: linear-gradient(135deg, rgba(127, 166, 80, 0.24), rgba(214, 169, 74, 0.14));
+  color: color-mix(in srgb, currentColor 88%, white 10%);
+}
+
 .gameHeader h2 {
   font-size: clamp(1.9rem, 4vw, 3.6rem);
   line-height: 0.98;
+  min-height: 3.6rem;
 }
 
 .gameSubstatus {
   margin-top: 10px;
   max-width: 52ch;
+  min-height: 3.25rem;
   color: color-mix(in srgb, currentColor 68%, transparent);
   line-height: 1.5;
 }
@@ -1409,6 +1443,33 @@ h2 {
   justify-content: center;
 }
 
+.gameResultCard {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--gold) 34%, transparent);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(127, 166, 80, 0.18), rgba(214, 169, 74, 0.1)),
+    color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.gameResultCard h3 {
+  font-size: clamp(1.25rem, 2vw, 1.8rem);
+  line-height: 1.2;
+}
+
+.gameResultCard p {
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  line-height: 1.58;
+}
+
+.gameResultActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .coachBulletPanel {
   display: grid;
   gap: 12px;
@@ -1498,6 +1559,10 @@ h2 {
   outline-offset: -4px;
 }
 
+.checkedKing {
+  box-shadow: inset 0 0 0 4px rgba(201, 78, 78, 0.68);
+}
+
 .analysisMoveList {
   display: grid;
   gap: 8px;
@@ -1527,6 +1592,15 @@ h2 {
 .activeAnalysisMove {
   border-color: color-mix(in srgb, var(--gold) 56%, transparent);
   background: linear-gradient(135deg, rgba(127, 166, 80, 0.2), rgba(214, 169, 74, 0.1));
+}
+
+.coachErrorCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(201, 78, 78, 0.24);
+  border-radius: var(--radius);
+  background: rgba(201, 78, 78, 0.08);
 }
 
 .savedGame {
@@ -2866,6 +2940,7 @@ h2 {
   .timeControlOptions,
   .customTimeControl,
   .gameActionRow,
+  .gameResultActions,
   .promotionGrid,
   .analysisControls {
     grid-template-columns: 1fr;
