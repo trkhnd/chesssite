@@ -1862,6 +1862,10 @@ function countReplayableMoves(game: SavedGame) {
   return 0;
 }
 
+function getReplayableMoveCount(game: SavedGame) {
+  return parseSavedGameMoves(game).moves.length;
+}
+
 function mergeSavedGames(current: SavedGame[], incoming: SavedGame[]) {
   const merged = new Map<string, SavedGame>();
 
@@ -3671,7 +3675,8 @@ export default function App() {
 
     const replayData = parseSavedGameMoves(savedGame);
     if (replayData.moves.length === 0) {
-      setToast("This saved game has no moves to analyze yet.");
+      setAnalysisError("This older saved game does not contain replayable moves. Play and save a fresh game, then Coach can analyze every move.");
+      setToast("This saved game was recorded without moves. Save a fresh game to analyze it.");
       return;
     }
 
@@ -5355,28 +5360,39 @@ export default function App() {
                 ) : savedGames.length === 0 ? (
                   <div className="emptyState">Finish or save a game to build your archive.</div>
                 ) : (
-                  savedGames.map((savedGame) => (
-                    <article className="savedGame" key={savedGame.id}>
-                      <div className="savedGameMain">
-                        <strong>{savedGame.result}</strong>
-                        <span>{formatDate(savedGame.date)} · {savedGame.mode === "ai" ? "AI game" : savedGame.mode === "friend" ? "Friend room" : "One-device"} · {savedGame.city}</span>
-                        <small>{savedGame.opponent || "Training opponent"} · {savedGame.timeControl || "Saved game"} · {savedGame.moves.length} moves</small>
-                      </div>
-                      <div className="savedMeta savedMetaStack">
-                        <span>{getHistoryScoreLabel(savedGame.reviewScore)}</span>
-                        <span>{savedGame.status || "Saved"}</span>
-                      </div>
-                      <div className="savedActions">
-                        <button className="ghostButton" onClick={() => openSavedGameView(savedGame)}>
-                          View game
-                        </button>
-                        <button className="primaryButton" onClick={() => void analyzeSavedGame(savedGame)}>
-                          <Brain size={16} />
-                          Analyze with Coach
-                        </button>
-                      </div>
-                    </article>
-                  ))
+                  savedGames.map((savedGame) => {
+                    const replayableMoves = getReplayableMoveCount(savedGame);
+                    const canAnalyzeSavedGame = replayableMoves > 0;
+                    return (
+                      <article className="savedGame" key={savedGame.id}>
+                        <div className="savedGameMain">
+                          <strong>{savedGame.result}</strong>
+                          <span>{formatDate(savedGame.date)} · {savedGame.mode === "ai" ? "AI game" : savedGame.mode === "friend" ? "Friend room" : "One-device"} · {savedGame.city}</span>
+                          <small>
+                            {savedGame.opponent || "Training opponent"} · {savedGame.timeControl || "Saved game"} · {replayableMoves} replayable moves
+                          </small>
+                        </div>
+                        <div className="savedMeta savedMetaStack">
+                          <span>{getHistoryScoreLabel(savedGame.reviewScore)}</span>
+                          <span>{canAnalyzeSavedGame ? savedGame.status || "Saved" : "Old record has no saved moves"}</span>
+                        </div>
+                        <div className="savedActions">
+                          <button className="ghostButton" onClick={() => openSavedGameView(savedGame)} disabled={!canAnalyzeSavedGame}>
+                            View game
+                          </button>
+                          <button
+                            className="primaryButton"
+                            onClick={() => void analyzeSavedGame(savedGame)}
+                            disabled={!canAnalyzeSavedGame}
+                            title={canAnalyzeSavedGame ? "Analyze this saved game" : "This old record has no move list. Save a fresh game to analyze."}
+                          >
+                            <Brain size={16} />
+                            {canAnalyzeSavedGame ? "Analyze with Coach" : "No moves saved"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
                 )}
               </div>
               <section className="trainingPlan compactTrainingPlan">
