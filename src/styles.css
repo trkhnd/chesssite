@@ -1073,6 +1073,7 @@ h2 {
   grid-template-columns: minmax(0, min(100%, 860px)) minmax(280px, 320px);
   align-items: start;
   justify-content: center;
+  overflow-anchor: none;
 }
 
 .boardStage,
@@ -1166,6 +1167,8 @@ h2 {
   border: 10px solid color-mix(in srgb, currentColor 10%, transparent);
   border-radius: var(--radius);
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+  contain: layout paint;
+  overflow-anchor: none;
   transition: transform 220ms ease;
 }
 
@@ -1179,6 +1182,8 @@ h2 {
 }
 
 .square {
+  appearance: none;
+  -webkit-appearance: none;
   position: relative;
   display: grid;
   min-width: 0;
@@ -1186,6 +1191,19 @@ h2 {
   overflow: hidden;
   place-items: center;
   border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.square:focus {
+  outline: none;
+}
+
+.square:focus-visible {
+  box-shadow: inset 0 0 0 3px rgba(240, 207, 117, 0.72);
 }
 
 .lightSquare {
@@ -1211,20 +1229,38 @@ h2 {
 }
 
 .piece {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
   z-index: 1;
-  line-height: 0.82;
-  font-size: clamp(1.6rem, 6.1vmin, 4rem);
-  text-shadow: 0 3px 8px rgba(0, 0, 0, 0.34);
+  font-family: "Noto Sans Symbols 2", "Apple Symbols", "Segoe UI Symbol", "DejaVu Sans", serif;
+  font-size: clamp(1.75rem, 6.5vmin, 4.35rem);
+  font-weight: 400;
+  line-height: 1;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.2),
+    0 3px 8px rgba(0, 0, 0, 0.36);
   transform: translateY(-1px);
   pointer-events: none;
+  will-change: transform;
 }
 
 .piece.w {
   color: #fff8e8;
+  -webkit-text-stroke: 0.7px rgba(36, 43, 36, 0.88);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.45),
+    0 2px 0 rgba(70, 82, 62, 0.42),
+    0 6px 12px rgba(0, 0, 0, 0.42);
 }
 
 .piece.b {
-  color: #101514;
+  color: #07100e;
+  -webkit-text-stroke: 0.45px rgba(238, 220, 188, 0.2);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18),
+    0 5px 10px rgba(0, 0, 0, 0.48);
 }
 
 .coord {

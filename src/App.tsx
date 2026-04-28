@@ -4641,6 +4641,7 @@ export default function App() {
                       const rank = square[1];
                       return (
                         <button
+                          type="button"
                           key={square}
                           className={[
                             "square",
@@ -4649,7 +4650,11 @@ export default function App() {
                             isTarget ? "target" : "",
                             isCheckedKing ? "checkedKing" : "",
                           ].join(" ")}
-                          onClick={() => handleSquareClick(square)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={(event) => {
+                            event.currentTarget.blur();
+                            handleSquareClick(square);
+                          }}
                           aria-label={square}
                         >
                           <span className={piece ? `piece ${piece.color}` : "piece"}>
@@ -5125,6 +5130,7 @@ export default function App() {
                     const isTarget = puzzleTargets.includes(square);
                     return (
                       <button
+                        type="button"
                         key={`puzzle-${square}`}
                         className={[
                           "square",
@@ -5132,7 +5138,11 @@ export default function App() {
                           isSelected ? "selected" : "",
                           isTarget ? "target" : "",
                         ].join(" ")}
-                        onClick={() => handlePuzzleSquareClick(square)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
+                          event.currentTarget.blur();
+                          handlePuzzleSquareClick(square);
+                        }}
                       >
                         <span className={piece ? `piece ${piece.color}` : "piece"}>
                           {piece ? pieceIcons[`${piece.color}${piece.type}`] : ""}
