@@ -54,7 +54,7 @@ import {
   type RoomState,
 } from "./lib/api";
 import { getSocket, setSocketToken } from "./lib/socket";
-import { playBoardSound } from "./lib/sounds";
+import { playBoardSound, unlockBoardAudio } from "./lib/sounds";
 import { analyzeFen, canUseStockfish, type StockfishAnalysis } from "./lib/stockfish";
 
 type BoardSquare = {
@@ -111,6 +111,7 @@ type SavedGame = {
   mode: LocalGameMode;
   result: string;
   moves: string[];
+  uciMoves?: string[];
   pgn: string;
   initialFen?: string;
   finalFen?: string;
@@ -1670,48 +1671,42 @@ function analyzeGame(history: Move[], game: Chess, analysis: StockfishAnalysis |
   return insights;
 }
 
-function parseSavedGameMoves(savedGame: SavedGame): AnalysisReplay {
-  let moves: Move[] = [];
-  const replay = new Chess();
-
-  if (savedGame.pgn.trim()) {
-    try {
-      replay.loadPgn(savedGame.pgn);
-      moves = replay.history({ verbose: true });
-    } catch {
-      moves = [];
-    }
+function normalizeInitialFen(fen?: string) {
+  if (!fen?.trim()) return new Chess().fen();
+  try {
+    return new Chess(fen).fen();
+  } catch {
+    return new Chess().fen();
   }
+}
 
-  if (moves.length === 0 && savedGame.moves.length > 0) {
-    const fallbackReplay = new Chess();
-    const rebuilt: Move[] = [];
+function tokenizePgnMoves(pgn: string) {
+  if (!pgn.trim()) return [];
+  return pgn
+    .replace(/\[[^\]]*]/g, " ")
+    .replace(/\{[^}]*}/g, " ")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\$\d+/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(
+      (token) =>
+        token &&
+        !/^\d+\.(\.\.)?$/.test(token) &&
+        !/^(1-0|0-1|1\/2-1\/2|\*)$/.test(token),
+    );
+}
 
-    for (const san of savedGame.moves) {
-      try {
-        const move = fallbackReplay.move(san);
-        if (!move) break;
-        rebuilt.push(move);
-      } catch {
-        break;
-      }
-    }
+function buildReplayFromSanMoves(initialFen: string, sanMoves: string[]) {
+  const builder = new Chess(initialFen);
+  const verboseMoves: Move[] = [];
+  const positions = [builder.fen()];
 
-    moves = rebuilt;
-  }
-
-  const initialFen = new Chess().fen();
-  const positions = [initialFen];
-  const builder = new Chess();
-
-  for (const move of moves) {
+  for (const san of sanMoves) {
     try {
-      const applied = builder.move({
-        from: move.from,
-        to: move.to,
-        promotion: move.promotion || "q",
-      });
+      const applied = builder.move(san);
       if (!applied) break;
+      verboseMoves.push(applied);
       positions.push(builder.fen());
     } catch {
       break;
@@ -1720,8 +1715,87 @@ function parseSavedGameMoves(savedGame: SavedGame): AnalysisReplay {
 
   return {
     initialFen,
-    moves: moves.slice(0, Math.max(0, positions.length - 1)),
+    moves: verboseMoves,
     positions,
+  };
+}
+
+function buildReplayFromUciMoves(initialFen: string, uciMoves: string[]) {
+  const builder = new Chess(initialFen);
+  const verboseMoves: Move[] = [];
+  const positions = [builder.fen()];
+
+  for (const uci of uciMoves) {
+    const normalized = String(uci || "").trim().toLowerCase();
+    const match = normalized.match(/^([a-h][1-8])([a-h][1-8])([qrbn])?$/);
+    if (!match) break;
+
+    try {
+      const applied = builder.move({
+        from: match[1] as Square,
+        to: match[2] as Square,
+        promotion: (match[3] as PieceSymbol | undefined) || undefined,
+      });
+      if (!applied) break;
+      verboseMoves.push(applied);
+      positions.push(builder.fen());
+    } catch {
+      break;
+    }
+  }
+
+  return {
+    initialFen,
+    moves: verboseMoves,
+    positions,
+  };
+}
+
+function parseSavedGameMoves(savedGame: SavedGame): AnalysisReplay {
+  const initialFen = normalizeInitialFen(savedGame.initialFen);
+
+  if (savedGame.pgn.trim()) {
+    try {
+      const replay = new Chess();
+      replay.loadPgn(savedGame.pgn);
+      const moves = replay.history({ verbose: true });
+      const rebuilt = buildReplayFromSanMoves(
+        initialFen,
+        moves.map((move) => move.san),
+      );
+      if (rebuilt.moves.length > 0) {
+        return rebuilt;
+      }
+    } catch {
+      // Fallbacks below cover older or malformed PGN.
+    }
+  }
+
+  if (savedGame.uciMoves?.length) {
+    const replayFromUci = buildReplayFromUciMoves(initialFen, savedGame.uciMoves);
+    if (replayFromUci.moves.length > 0) {
+      return replayFromUci;
+    }
+  }
+
+  if (savedGame.moves.length > 0) {
+    const replayFromSan = buildReplayFromSanMoves(initialFen, savedGame.moves);
+    if (replayFromSan.moves.length > 0) {
+      return replayFromSan;
+    }
+  }
+
+  if (savedGame.pgn.trim()) {
+    const replayFromTokens = buildReplayFromSanMoves(initialFen, tokenizePgnMoves(savedGame.pgn));
+    if (replayFromTokens.moves.length > 0) {
+      return replayFromTokens;
+    }
+  }
+
+  return {
+    initialFen,
+    moves: [],
+    positions: [initialFen],
   };
 }
 
@@ -1732,7 +1806,7 @@ function extractMovesFromPgn(pgn: string) {
     replay.loadPgn(pgn);
     return replay.history();
   } catch {
-    return [];
+    return tokenizePgnMoves(pgn);
   }
 }
 
@@ -2348,21 +2422,39 @@ export default function App() {
       .then((items) => {
         const mapped = items.map((item) => {
           const pgn = String(item.pgn || "");
+          const sanMoves = Array.isArray(item.moves)
+            ? item.moves.map((move) => String(move))
+            : extractMovesFromPgn(pgn);
+          const uciMoves = Array.isArray(item.uciMoves)
+            ? item.uciMoves.map((move) => String(move))
+            : [];
           return {
             id: String(item.id),
             date: String(item.finishedAt || item.createdAt || new Date().toISOString()),
             mode: item.mode === "friend" ? "friend" : "ai",
             result: String(item.result || "*"),
-            moves: extractMovesFromPgn(pgn),
+            moves: sanMoves,
+            uciMoves,
             pgn,
-            initialFen: new Chess().fen(),
-            finalFen: String(item.fen || ""),
+            initialFen: typeof item.initialFen === "string" ? String(item.initialFen) : new Chess().fen(),
+            finalFen:
+              typeof item.finalFen === "string"
+                ? String(item.finalFen)
+                : String(item.fen || ""),
             coach: [],
             city: profile.city,
             reviewScore: null,
             status: String(item.status || ""),
-            timeControl: typeof item.summary === "string" && item.summary.includes("+") ? String(item.summary) : "",
+            timeControl:
+              typeof item.timeControl === "string"
+                ? String(item.timeControl)
+                : typeof item.summary === "string" && item.summary.includes("+")
+                  ? String(item.summary)
+                  : "",
             opponent:
+              typeof item.opponent === "string"
+                ? String(item.opponent)
+                :
               item.mode === "friend"
                 ? String(
                     (
@@ -2896,6 +2988,7 @@ export default function App() {
       mode,
       result: resultOverride || getResult(game),
       moves: history.map((move) => move.san),
+      uciMoves: history.map((move) => `${move.from}${move.to}${move.promotion || ""}`),
       pgn: game.pgn(),
       initialFen: new Chess().fen(),
       finalFen: game.fen(),
@@ -2923,6 +3016,13 @@ export default function App() {
         pgn: saved.pgn,
         fen: game.fen(),
         summary: `${getReviewLabel(reviewScore)} review saved from the ${mode} board.`,
+        moves: saved.moves,
+        uciMoves: saved.uciMoves,
+        initialFen: saved.initialFen,
+        finalFen: saved.finalFen,
+        timeControl: saved.timeControl,
+        opponent: saved.opponent,
+        players: saved.players,
       }).catch(() => undefined);
     }
     if (source === "manual" && !options?.silent) setToast("Game saved to your local history.");
@@ -3719,7 +3819,7 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-      <main className={`app ${theme}`}>
+      <main className={`app ${theme}`} onPointerDownCapture={unlockBoardAudio} onKeyDownCapture={unlockBoardAudio}>
       <section className="topbar">
         <div className="brand">
           <div className="brandMark">♞</div>
@@ -4624,18 +4724,18 @@ export default function App() {
                       </div>
 
                       <div className="analysisControls">
-                        <button className="ghostButton" onClick={() => moveAnalysisTo(0)} disabled={analysisMoveIndex === 0}>
+                        <button type="button" className="ghostButton" onClick={() => moveAnalysisTo(0)} disabled={analysisMoveIndex === 0}>
                           Jump to start
                         </button>
-                        <button className="ghostButton" onClick={() => stepAnalysis(-1)} disabled={analysisMoveIndex === 0}>
+                        <button type="button" className="ghostButton" onClick={() => stepAnalysis(-1)} disabled={analysisMoveIndex === 0}>
                           <ChevronLeft size={16} />
                           Previous
                         </button>
-                        <button className="ghostButton" onClick={() => stepAnalysis(1)} disabled={analysisMoveIndex >= maxAnalysisIndex}>
+                        <button type="button" className="ghostButton" onClick={() => stepAnalysis(1)} disabled={analysisMoveIndex >= maxAnalysisIndex}>
                           Next
                           <ChevronRight size={16} />
                         </button>
-                        <button className="ghostButton" onClick={() => moveAnalysisTo(maxAnalysisIndex)} disabled={analysisMoveIndex >= maxAnalysisIndex}>
+                        <button type="button" className="ghostButton" onClick={() => moveAnalysisTo(maxAnalysisIndex)} disabled={analysisMoveIndex >= maxAnalysisIndex}>
                           Jump to end
                         </button>
                       </div>
@@ -4652,6 +4752,7 @@ export default function App() {
                             <div className="emptyState compactEmpty">No replayable moves were found for this saved game yet.</div>
                           ) : analysisTimelineMoves.map((move, index) => (
                             <button
+                              type="button"
                               key={`analysis-move-${index}-${move.san}`}
                               className={analysisMoveIndex === index + 1 ? "analysisMoveButton activeAnalysisMove" : "analysisMoveButton"}
                               onClick={() => moveAnalysisTo(index + 1)}

@@ -351,7 +351,22 @@ app.get("/api/history", requireAuth, (req, res) => {
 });
 
 app.post("/api/history", requireAuth, (req, res) => {
-  const { mode, result, status, pgn, fen, summary, opponentUserId } = req.body || {};
+  const {
+    mode,
+    result,
+    status,
+    pgn,
+    fen,
+    summary,
+    opponentUserId,
+    moves,
+    uciMoves,
+    initialFen,
+    finalFen,
+    timeControl,
+    opponent,
+    players,
+  } = req.body || {};
   if (!result || !status) {
     res.status(400).json({ error: "Result and status are required." });
     return;
@@ -366,6 +381,15 @@ app.post("/api/history", requireAuth, (req, res) => {
     status,
     pgn: pgn || "",
     fen: fen || "",
+    metadata: {
+      moves: Array.isArray(moves) ? moves : [],
+      uciMoves: Array.isArray(uciMoves) ? uciMoves : [],
+      initialFen: typeof initialFen === "string" ? initialFen : "",
+      finalFen: typeof finalFen === "string" ? finalFen : fen || "",
+      timeControl: typeof timeControl === "string" ? timeControl : "",
+      opponent: typeof opponent === "string" ? opponent : "",
+      players: typeof players === "object" && players ? players : null,
+    },
     winnerUserId: result === "1-0" ? req.session.userId : null,
     summary: summary || "",
   });
@@ -493,6 +517,18 @@ async function persistFinishedGame(room, moveResult) {
     status: moveResult.status,
     pgn: room.chess.pgn(),
     fen: room.chess.fen(),
+    metadata: {
+      moves: room.chess.history(),
+      uciMoves: room.chess.history({ verbose: true }).map((move) => `${move.from}${move.to}${move.promotion || ""}`),
+      initialFen: new Chess().fen(),
+      finalFen: room.chess.fen(),
+      timeControl: `${room.timeControl.category} ${room.timeControl.label}`,
+      opponent: room.black?.name || "Friend",
+      players: {
+        white: room.white.name,
+        black: room.black?.name || "Black",
+      },
+    },
     winnerUserId,
     summary,
   });

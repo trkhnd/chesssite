@@ -45,6 +45,7 @@ const SOUND_LIBRARY: Record<ChessSound, Note[]> = {
 };
 
 let audioContext: AudioContext | null = null;
+let audioUnlocked = false;
 
 function getAudioContext() {
   if (typeof window === "undefined") return null;
@@ -57,6 +58,22 @@ function getAudioContext() {
     void audioContext.resume().catch(() => undefined);
   }
   return audioContext;
+}
+
+export function unlockBoardAudio() {
+  const context = getAudioContext();
+  if (!context) return;
+  if (context.state === "running") {
+    audioUnlocked = true;
+    return;
+  }
+
+  void context
+    .resume()
+    .then(() => {
+      audioUnlocked = context.state === "running";
+    })
+    .catch(() => undefined);
 }
 
 function scheduleNote(context: AudioContext, note: Note, offsetSeconds: number) {
@@ -78,6 +95,7 @@ export function playBoardSound(kind: ChessSound, enabled: boolean, delayMs = 0) 
   if (!enabled) return;
   const context = getAudioContext();
   if (!context) return;
+  if (!audioUnlocked && context.state !== "running") return;
   const notes = SOUND_LIBRARY[kind];
   if (!notes) return;
 

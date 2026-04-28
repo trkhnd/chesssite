@@ -33,6 +33,7 @@ db.exec(`
     status TEXT NOT NULL,
     pgn TEXT,
     fen TEXT,
+    metadata TEXT,
     winner_user_id TEXT,
     summary TEXT,
     created_at TEXT NOT NULL,
@@ -43,6 +44,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS games_white_user_idx ON games (white_user_id);
   CREATE INDEX IF NOT EXISTS games_black_user_idx ON games (black_user_id);
 `);
+
+const gameColumns = db.prepare("PRAGMA table_info(games)").all();
+if (!gameColumns.some((column) => column.name === "metadata")) {
+  db.exec("ALTER TABLE games ADD COLUMN metadata TEXT");
+}
 
 function mapUser(row) {
   if (!row) return null;
@@ -66,6 +72,15 @@ function mapUser(row) {
 }
 
 function mapGame(row) {
+  let metadata = {};
+  if (row.metadata) {
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch {
+      metadata = {};
+    }
+  }
+
   return {
     id: row.id,
     roomId: row.room_id,
@@ -74,6 +89,14 @@ function mapGame(row) {
     status: row.status,
     pgn: row.pgn || "",
     fen: row.fen || "",
+    metadata,
+    moves: Array.isArray(metadata.moves) ? metadata.moves : [],
+    uciMoves: Array.isArray(metadata.uciMoves) ? metadata.uciMoves : [],
+    initialFen: typeof metadata.initialFen === "string" ? metadata.initialFen : "",
+    finalFen: typeof metadata.finalFen === "string" ? metadata.finalFen : row.fen || "",
+    timeControl: typeof metadata.timeControl === "string" ? metadata.timeControl : "",
+    opponent: typeof metadata.opponent === "string" ? metadata.opponent : "",
+    players: typeof metadata.players === "object" && metadata.players ? metadata.players : null,
     summary: row.summary || "",
     winnerUserId: row.winner_user_id,
     createdAt: row.created_at,
@@ -230,9 +253,9 @@ export function createGameRecord(input) {
   db.prepare(`
     INSERT INTO games (
       id, room_id, mode, white_user_id, black_user_id, result, status, pgn, fen,
-      winner_user_id, summary, created_at, finished_at
+      metadata, winner_user_id, summary, created_at, finished_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.roomId || null,
@@ -243,6 +266,7 @@ export function createGameRecord(input) {
     input.status,
     input.pgn || "",
     input.fen || "",
+    input.metadata ? JSON.stringify(input.metadata) : null,
     input.winnerUserId || null,
     input.summary || "",
     createdAt,
