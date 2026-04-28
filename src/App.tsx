@@ -3570,11 +3570,120 @@ export default function App() {
       return;
     }
 
+    const buildAnalysisResult = (moveReviews: AnalysisMoveReview[]): SavedGameAnalysis => {
+      if (moveReviews.length === 0) {
+        return {
+          gameId: savedGame.id,
+          coachMode,
+          moveReviews: [],
+          summary: {
+            accuracy: 0,
+            biggestMistake: "No replayable moves were found for this game.",
+            bestMove: "No moves available.",
+            openingAdvice: "Replay data is incomplete, so the opening could not be reviewed yet.",
+            middlegameAdvice: "Save another completed game to get a full move-by-move review.",
+            endgameAdvice: "Once the move list is available, Chess Master can highlight the endgame turning point.",
+            training: [
+              "Save one full game from start to finish",
+              "Review the move list before opening Coach",
+              "Try another fresh game if this record is incomplete",
+            ],
+          },
+        };
+      }
+
+      const biggestMistake = [...moveReviews]
+        .reverse()
+        .find((item) => item.quality === "blunder" || item.quality === "mistake") || moveReviews[moveReviews.length - 1];
+      const bestReviewedMove =
+        moveReviews.find((item) => item.quality === "brilliant" || item.quality === "good") || moveReviews[0];
+      const accuracy = Math.max(
+        42,
+        Math.min(
+          97,
+          Math.round(
+            moveReviews.reduce((score, item) => {
+              if (item.quality === "brilliant") return score + 1;
+              if (item.quality === "good") return score + 0.86;
+              if (item.quality === "inaccuracy") return score + 0.62;
+              if (item.quality === "mistake") return score + 0.38;
+              return score + 0.18;
+            }, 0) /
+              moveReviews.length *
+              100,
+          ),
+        ),
+      );
+
+      return {
+        gameId: savedGame.id,
+        coachMode,
+        moveReviews,
+        summary: {
+          accuracy,
+          biggestMistake: `Move ${biggestMistake.ply}: ${biggestMistake.explanation}`,
+          bestMove: `Move ${bestReviewedMove.ply}: ${bestReviewedMove.bestMove}`,
+          openingAdvice: moveReviews.slice(0, Math.min(10, moveReviews.length)).some((item) => /Opening principle/.test(item.principle))
+            ? "Castle earlier, develop more pieces before repeat moves, and keep the queen flexible."
+            : "Your opening was stable. Keep comparing development speed with king safety.",
+          middlegameAdvice: "Before each attacking move, compare checks, captures, and the safety of your least protected piece.",
+          endgameAdvice: "When material comes off, centralize the king faster and avoid creating new pawn weaknesses.",
+          training: [
+            "10 minutes of tactics with checks and loose-piece motifs",
+            "One saved game review with move-by-move comparison",
+            "One short endgame drill focusing on king activity",
+          ],
+        },
+      };
+    };
+
+    const buildFallbackReviews = () => {
+      const fallbackWalker = new Chess(replayData.initialFen);
+      const moveReviews: AnalysisMoveReview[] = [];
+
+      for (let index = 0; index < replayData.moves.length; index += 1) {
+        const move = replayData.moves[index];
+        const before = new Chess(fallbackWalker.fen());
+        const bestMove = findBestMove(before);
+
+        moveReviews.push(
+          buildCoachMoveReview({
+            gameBefore: before,
+            move,
+            bestMove,
+            analysis: null,
+            coachMode,
+            ply: index + 1,
+          }),
+        );
+
+        try {
+          fallbackWalker.move({
+            from: move.from,
+            to: move.to,
+            promotion: move.promotion || "q",
+          });
+        } catch {
+          break;
+        }
+      }
+
+      return moveReviews;
+    };
+
+    const fallbackAnalysis = buildAnalysisResult(buildFallbackReviews());
+    setAnalysisCache((current) => ({ ...current, [savedGame.id]: fallbackAnalysis }));
+    setToast("Quick coach review ready.");
+
+    if (!canUseStockfish()) {
+      return;
+    }
+
     setAnalysisPending(true);
 
     try {
       const moveReviews: AnalysisMoveReview[] = [];
-      const walker = new Chess();
+      const walker = new Chess(replayData.initialFen);
 
       for (let index = 0; index < replayData.moves.length; index += 1) {
         const move = replayData.moves[index];
@@ -3613,52 +3722,8 @@ export default function App() {
           break;
         }
       }
-
-      const biggestMistake = [...moveReviews]
-        .reverse()
-        .find((item) => item.quality === "blunder" || item.quality === "mistake") || moveReviews[moveReviews.length - 1];
-      const bestReviewedMove = moveReviews.find((item) => item.quality === "brilliant" || item.quality === "good") || moveReviews[0];
-      const accuracy = Math.max(
-        42,
-        Math.min(
-          97,
-          Math.round(
-            moveReviews.reduce((score, item) => {
-              if (item.quality === "brilliant") return score + 1;
-              if (item.quality === "good") return score + 0.86;
-              if (item.quality === "inaccuracy") return score + 0.62;
-              if (item.quality === "mistake") return score + 0.38;
-              return score + 0.18;
-            }, 0) /
-              moveReviews.length *
-              100,
-          ),
-        ),
-      );
-
-      const analysisResult: SavedGameAnalysis = {
-        gameId: savedGame.id,
-        coachMode,
-        moveReviews,
-        summary: {
-          accuracy,
-          biggestMistake: `Move ${biggestMistake.ply}: ${biggestMistake.explanation}`,
-          bestMove: `Move ${bestReviewedMove.ply}: ${bestReviewedMove.bestMove}`,
-          openingAdvice: moveReviews.slice(0, Math.min(10, moveReviews.length)).some((item) => /Opening principle/.test(item.principle))
-            ? "Castle earlier, develop more pieces before repeat moves, and keep the queen flexible."
-            : "Your opening was stable. Keep comparing development speed with king safety.",
-          middlegameAdvice: "Before each attacking move, compare checks, captures, and the safety of your least protected piece.",
-          endgameAdvice: "When material comes off, centralize the king faster and avoid creating new pawn weaknesses.",
-          training: [
-            "10 minutes of tactics with checks and loose-piece motifs",
-            "One saved game review with move-by-move comparison",
-            "One short endgame drill focusing on king activity",
-          ],
-        },
-      };
-
-      setAnalysisCache((current) => ({ ...current, [savedGame.id]: analysisResult }));
-      setToast("Saved game analysis completed.");
+      setAnalysisCache((current) => ({ ...current, [savedGame.id]: buildAnalysisResult(moveReviews) }));
+      setToast("Deep coach analysis completed.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Coach analysis failed.";
       setAnalysisError(message);

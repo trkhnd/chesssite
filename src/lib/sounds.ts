@@ -91,11 +91,17 @@ function scheduleNote(context: AudioContext, note: Note, offsetSeconds: number) 
   oscillator.stop(startAt + note.duration + 0.02);
 }
 
-export function playBoardSound(kind: ChessSound, enabled: boolean, delayMs = 0) {
+export function playBoardSound(kind: ChessSound, enabled: boolean, delayMs = 0, attempt = 0) {
   if (!enabled) return;
   const context = getAudioContext();
   if (!context) return;
-  if (!audioUnlocked && context.state !== "running") return;
+  if (context.state !== "running") {
+    unlockBoardAudio();
+    if (typeof window !== "undefined" && attempt < 2) {
+      window.setTimeout(() => playBoardSound(kind, enabled, delayMs, attempt + 1), 36);
+    }
+    return;
+  }
   const notes = SOUND_LIBRARY[kind];
   if (!notes) return;
 
